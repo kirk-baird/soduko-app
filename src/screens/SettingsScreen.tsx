@@ -80,7 +80,7 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
         <Text style={[styles.section, { color: t.textMuted }]}>TIPS</Text>
         <View style={[styles.group, { backgroundColor: t.surface, borderColor: t.border, padding: 14, gap: 6 }]}>
           <Text style={[styles.rowDesc, { color: t.text }]}>• Long-press a number to enter it in the other mode (pencil ↔ digit).</Text>
-          <Text style={[styles.rowDesc, { color: t.text }]}>• Rewind jumps back to just before your first mistake that's still on the board.</Text>
+          <Text style={[styles.rowDesc, { color: t.text }]}>{"• Rewind jumps back to just before your first mistake that's still on the board."}</Text>
           <Text style={[styles.rowDesc, { color: t.text }]}>• Hints work from your own pencil marks; cells with none are treated as having every possible candidate.</Text>
           <Text style={[styles.rowDesc, { color: t.text }]}>• Tap the timer to pause.</Text>
         </View>

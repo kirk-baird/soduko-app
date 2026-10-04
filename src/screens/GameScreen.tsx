@@ -65,9 +65,12 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
   const [autoFilling, setAutoFilling] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [result, setResult] = useState<{ ms: number; isBest: boolean } | null>(null);
-  const clock = useRef(new Clock(initial.elapsedMs)).current;
+  const [clock] = useState(() => new Clock(initial.elapsedMs));
   const gameRef = useRef(game);
-  gameRef.current = game;
+  // declared before the save effects so they see the latest game
+  useEffect(() => {
+    gameRef.current = game;
+  }, [game]);
 
   const buzz = useCallback(
     (kind: 'tap' | 'error' | 'success') => {

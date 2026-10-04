@@ -34,6 +34,8 @@ function Root() {
   }, []);
 
   useEffect(() => {
+    // false positive: refreshHome only sets state after its awaits resolve
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshHome();
   }, [refreshHome]);
 

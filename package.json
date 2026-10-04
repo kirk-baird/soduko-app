@@ -17,6 +17,8 @@
   },
   "devDependencies": {
     "@types/react": "~19.2.2",
+    "eslint": "^9.39.5",
+    "eslint-config-expo": "~57.0.2",
     "typescript": "~6.0.3",
     "vitest": "^5.0.3"
   },
@@ -28,7 +30,13 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build-bank": "tsx scripts/build-bank.ts",
-    "survey": "tsx scripts/survey.ts"
+    "survey": "tsx scripts/survey.ts",
+    "lint": "expo lint"
   },
-  "private": true
+  "private": true,
+  "overrides": {
+    "xcode": {
+      "uuid": "^11.1.1"
+    }
+  }
 }
