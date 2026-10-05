@@ -29,7 +29,7 @@
         "projectId": "2880ebeb-433a-427b-b810-109e98ef4a03"
       }
     },
-    "runtimeVersion": "1.0.0",
+    "runtimeVersion": { "policy": "sdkVersion"},
     "updates": {
       "url": "https://u.expo.dev/2880ebeb-433a-427b-b810-109e98ef4a03"
     }
