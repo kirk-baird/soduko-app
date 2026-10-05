@@ -1,0 +1,93 @@
+# Publishes an over-the-air update when a new version reaches master.
+#
+# - Runs on every push to master, but only publishes when app.json's version
+#   hasn't been published to the channel yet (tracked with a git tag such as
+#   "preview-v1.1.1"). So: bump the version + changelog, push, and phones on
+#   that channel get it. Pushes without a version bump just run the checks.
+# - Typecheck, lint and tests must pass first.
+# - "Run workflow" on the Actions tab can publish to production (or re-run
+#   preview) by hand.
+#
+# Needs a repository secret EXPO_TOKEN (expo.dev → Account settings → Access tokens).
+
+name: EAS Update
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Channel to publish to
+        type: choice
+        options: [preview, production]
+        default: preview
+
+permissions:
+  contents: write # to push the "<channel>-v<version>" tag
+
+concurrency:
+  group: eas-update-${{ github.event.inputs.channel || 'preview' }}
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    env:
+      CHANNEL: ${{ github.event.inputs.channel || 'preview' }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # full history and tags, to see which versions are published
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Work out version
+        id: version
+        run: |
+          VERSION=$(node -p "require('./app.json').expo.version")
+          TAG="$CHANNEL-v$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::v$VERSION is already published to $CHANNEL. Bump the version (npm version patch --no-git-tag-version) and add a CHANGELOG entry to publish."
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+            echo "Will publish v$VERSION to $CHANNEL"
+          fi
+
+      - run: npm ci
+
+      - name: Typecheck, lint, test
+        run: |
+          npm run typecheck
+          npm run lint
+          npm test
+
+      - name: Check EXPO_TOKEN
+        if: steps.version.outputs.publish == 'true'
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::Add an EXPO_TOKEN repository secret (expo.dev → Account settings → Access tokens)."
+            exit 1
+          fi
+
+      - name: Publish update
+        if: steps.version.outputs.publish == 'true'
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: node scripts/publish-update.mjs "$CHANNEL" --non-interactive
+
+      - name: Tag the published version
+        if: steps.version.outputs.publish == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.version.outputs.tag }}" -m "v${{ steps.version.outputs.version }} published to $CHANNEL"
+          git push origin "${{ steps.version.outputs.tag }}"
