@@ -42,7 +42,8 @@ Docs: https://docs.expo.dev/eas/index.md
 
 ## This project
 
-- Navigation is deliberately simple state-based screen switching in `App.tsx` (three screens), not Expo Router.
+- Navigation is deliberately simple state-based screen switching in `App.tsx` (home → game type → game, plus settings), not Expo Router.
+- Game types are defined in `src/games/registry.ts`; sudoku variants share the geometry-aware engine in `src/engine/`, while Calcudoku, Kakuro and Tents have their own engines under `src/engine/<type>/`.
 - All sudoku logic lives in `src/engine/` (pure TS, no React) and `src/game/gameState.ts` (pure reducer). Keep it that way so it stays unit-testable with `npm test`.
 - Adding or re-tiering a technique: edit `TECHNIQUES` in `src/engine/techniques.ts`, run `npm test`, `npm run survey`, then `npm run build-bank`.
 - See DESIGN.md for feature semantics (hints, rewind, auto-finish, difficulty tiers).

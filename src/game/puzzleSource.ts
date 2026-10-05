@@ -1,56 +1,50 @@
 // Where new puzzles come from: the bundled bank first (instant), then
 // on-device generation once a difficulty's bank has been played through.
 
-import bank from '../data/puzzleBank.json';
-import { generateMinimal } from '../engine/generator';
-import { Grid } from '../engine/grid';
-import { DIFFICULTY_TIER, Difficulty, grade } from '../engine/logic';
+import { Difficulty } from '../engine/common';
 import { makeRng } from '../engine/rng';
-import { solve } from '../engine/solver';
-import { loadJSON, saveJSON } from '../storage';
+import { GAMES } from '../games/registry';
+import { GameType } from '../games/types';
+import { loadRaw, saveJSON } from '../storage';
 
-const BANK = bank as Record<Difficulty, string[]>;
-
-type PlayedMap = Record<Difficulty, number[]>;
-const EMPTY_PLAYED: PlayedMap = { medium: [], hard: [], extraHard: [], extreme: [] };
+type PlayedMap = Partial<Record<Difficulty, number[]>>;
 
 export interface PuzzleChoice {
   id: string;
-  givens: Grid;
-  solution: Grid;
+  payload: unknown;
 }
-
-const parse = (s: string): Grid => [...s].map(Number);
 
 /** Yield to the UI thread between generation attempts. */
 const nextTick = () => new Promise<void>((r) => setTimeout(r, 0));
 
-export async function nextPuzzle(difficulty: Difficulty, onProgress?: (attempts: number) => void): Promise<PuzzleChoice> {
-  const played = await loadJSON<PlayedMap>('played', EMPTY_PLAYED);
+const playedKey = (t: GameType) => `played.${t}`;
+
+export async function nextPuzzle(type: GameType, difficulty: Difficulty, onProgress?: (attempts: number) => void): Promise<PuzzleChoice> {
+  const def = GAMES[type];
+  const played = (await loadRaw<PlayedMap>(playedKey(type))) ?? {};
   const used = new Set(played[difficulty] ?? []);
-  const list = BANK[difficulty];
+  const list = def.bank()[difficulty] ?? [];
   const unplayed = list.map((_, i) => i).filter((i) => !used.has(i));
 
   if (unplayed.length) {
     const idx = unplayed[Math.floor(Math.random() * unplayed.length)];
-    await saveJSON('played', { ...played, [difficulty]: [...used, idx] });
-    const givens = parse(list[idx]);
-    return { id: `bank-${difficulty}-${idx}`, givens, solution: solve(givens).solution! };
+    await saveJSON(playedKey(type), { ...played, [difficulty]: [...used, idx] });
+    return { id: `bank-${type}-${difficulty}-${idx}`, payload: def.fromBank(list[idx]) };
   }
 
-  // Bank exhausted: generate on the device.
+  // Bank exhausted: generate on the device, yielding between attempts.
   const seed = (Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0;
   const rng = makeRng(seed);
-  const tier = DIFFICULTY_TIER[difficulty];
   for (let attempts = 1; ; attempts++) {
-    const p = generateMinimal(rng);
-    const g = grade(p.puzzle);
-    if (g.solved && g.maxTier === tier) return { id: `gen-${seed}-${attempts}`, givens: p.puzzle, solution: p.solution };
-    if (attempts % 3 === 0) {
-      onProgress?.(attempts);
-      await nextTick();
+    const payload = def.generate(difficulty, rng);
+    if (payload) return { id: `gen-${type}-${seed}-${attempts}`, payload };
+    // Rare levels can take a long time to hit on a phone: after a while,
+    // replay a bank puzzle rather than keep the player waiting.
+    if (attempts >= 150 && list.length) {
+      const idx = Math.floor(Math.random() * list.length);
+      return { id: `bank-${type}-${difficulty}-${idx}-replay-${seed}`, payload: def.fromBank(list[idx]) };
     }
+    onProgress?.(attempts);
+    await nextTick();
   }
 }
-
-export const bankSize = (d: Difficulty) => BANK[d].length;

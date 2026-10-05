@@ -3,6 +3,7 @@
     "name": "Sudokou",
     "slug": "sudokou",
     "version": "1.0.0",
+	"owner": "kirk-baird",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -22,6 +23,17 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "2880ebeb-433a-427b-b810-109e98ef4a03"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/2880ebeb-433a-427b-b810-109e98ef4a03"
     }
   }
 }

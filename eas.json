@@ -6,12 +6,18 @@
   "build": {
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "android": {
         "buildType": "apk"
-      }
+      },
+      "autoIncrement": true
     },
     "production": {
+      "channel": "production",
       "autoIncrement": true
     }
+  },
+  "submit": {
+    "production": {}
   }
 }

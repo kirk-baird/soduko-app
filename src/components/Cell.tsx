@@ -7,6 +7,8 @@ export interface CellProps {
   size: number;
   x: number;
   y: number;
+  row: number; // for the accessibility label
+  col: number;
   value: number;
   given: boolean;
   showError: boolean;
@@ -17,39 +19,66 @@ export interface CellProps {
   keyAltMask: number; // hint: reason candidates (alternate colour)
   elimMask: number; // hint: candidates to remove
   placeDigit: number; // hint: digit to place
+  symbols: string; // digit -> glyph
+  candidateGrid: 3 | 4;
+  maxDigit: number;
+  label?: string; // calcudoku cage label
+  mini?: boolean;
   theme: Theme;
-  onPress: (index: number) => void;
+  onPress?: (index: number) => void;
 }
-
-const DIGITS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 function CellView(p: CellProps) {
   const { size, theme: t } = p;
-  const candSize = size / 3;
+  const k = p.candidateGrid;
+  const labelH = p.label && !p.mini ? Math.max(9, size * 0.26) : 0;
+  const candSize = (size - labelH) / k;
   const valueColor = p.given ? t.digitGiven : p.showError ? t.digitError : t.digitUser;
+  const glyph = (d: number) => p.symbols[d] ?? String(d);
+  const digits = Array.from({ length: k * k }, (_, i) => i + 1).filter((d) => d <= Math.max(p.maxDigit, k * k));
 
-  return (
-    <Pressable
-      onPress={() => p.onPress(p.index)}
-      style={[styles.cell, { left: p.x, top: p.y, width: size, height: size, backgroundColor: p.bg }]}
-      accessibilityLabel={`Row ${Math.floor(p.index / 9) + 1} column ${(p.index % 9) + 1}${p.value ? `, ${p.value}` : ''}`}
-    >
+  const content = (
+    <>
+      {p.label ? (
+        <Text
+          numberOfLines={1}
+          style={[
+            styles.label,
+            { fontSize: p.mini ? Math.max(4, size * 0.3) : Math.max(8, size * 0.24), color: t.text, left: p.mini ? 1 : 2 },
+          ]}
+        >
+          {p.label}
+        </Text>
+      ) : null}
       {p.value ? (
         <Text
           style={[
             styles.value,
-            { fontSize: size * 0.62, lineHeight: size * 0.9, color: valueColor, fontWeight: p.given ? '600' : '500' },
+            {
+              fontSize: size * (p.label ? 0.52 : 0.62),
+              lineHeight: size * 0.9,
+              color: valueColor,
+              fontWeight: p.given ? '600' : '500',
+              marginTop: labelH * 0.5,
+            },
           ]}
         >
-          {p.value}
+          {glyph(p.value)}
         </Text>
       ) : p.placeDigit ? (
-        <View style={[styles.place, { backgroundColor: t.hintPlace, width: size * 0.82, height: size * 0.82, borderRadius: size * 0.2 }]}>
-          <Text style={[styles.value, { fontSize: size * 0.56, lineHeight: size * 0.8, color: t.text }]}>{p.placeDigit}</Text>
+        <View
+          style={[
+            styles.place,
+            { backgroundColor: t.hintPlace, width: size * 0.82, height: size * 0.82, borderRadius: size * 0.2 },
+          ]}
+        >
+          <Text style={[styles.value, { fontSize: size * 0.56, lineHeight: size * 0.8, color: t.text }]}>
+            {glyph(p.placeDigit)}
+          </Text>
         </View>
-      ) : p.pencil ? (
-        <View style={styles.candGrid}>
-          {DIGITS.map((d) => {
+      ) : p.pencil && !p.mini ? (
+        <View style={[styles.candGrid, { paddingTop: labelH, paddingHorizontal: (size - candSize * k) / 2 }]}>
+          {digits.map((d) => {
             const on = (p.pencil >> d) & 1;
             const b = 1 << d;
             const isElim = (p.elimMask & b) !== 0;
@@ -72,9 +101,9 @@ function CellView(p: CellProps) {
                 {on ? (
                   <View
                     style={{
-                      width: candSize * 0.86,
-                      height: candSize * 0.86,
-                      borderRadius: candSize * 0.43,
+                      width: candSize * 0.9,
+                      height: candSize * 0.9,
+                      borderRadius: candSize * 0.45,
                       backgroundColor: bg,
                       alignItems: 'center',
                       justifyContent: 'center',
@@ -82,8 +111,8 @@ function CellView(p: CellProps) {
                   >
                     <Text
                       style={{
-                        fontSize: candSize * 0.68,
-                        lineHeight: candSize * 0.82,
+                        fontSize: candSize * 0.7,
+                        lineHeight: candSize * 0.84,
                         color,
                         fontWeight: bg ? '700' : '400',
                         textDecorationLine: isElim ? 'line-through' : 'none',
@@ -91,7 +120,7 @@ function CellView(p: CellProps) {
                         textAlign: 'center',
                       }}
                     >
-                      {d}
+                      {glyph(d)}
                     </Text>
                   </View>
                 ) : null}
@@ -100,11 +129,66 @@ function CellView(p: CellProps) {
           })}
         </View>
       ) : null}
+    </>
+  );
+
+  const style = [styles.cell, { left: p.x, top: p.y, width: size, height: size, backgroundColor: p.bg }];
+  if (!p.onPress) return <View style={style}>{content}</View>;
+  return (
+    <Pressable
+      onPress={() => p.onPress?.(p.index)}
+      style={style}
+      accessibilityLabel={`Row ${p.row + 1} column ${p.col + 1}${p.value ? `, ${glyph(p.value)}` : ''}`}
+    >
+      {content}
     </Pressable>
   );
 }
 
 export const Cell = memo(CellView);
+
+/** Kakuro clue cell: dark, split by a diagonal, across total top-right and down total bottom-left. */
+export const ClueCell = memo(function ClueCell(p: {
+  x: number;
+  y: number;
+  size: number;
+  across?: number;
+  down?: number;
+  mini?: boolean;
+  theme: Theme;
+}) {
+  const t = p.theme;
+  const diag = Math.SQRT2 * p.size;
+  const hasClue = p.across != null || p.down != null;
+  const fs = Math.max(p.mini ? 4 : 8, p.size * 0.3);
+  return (
+    <View
+      style={[styles.cell, { left: p.x, top: p.y, width: p.size, height: p.size, backgroundColor: t.clueBg, overflow: 'hidden' }]}
+    >
+      {hasClue ? (
+        <>
+          <View
+            style={{
+              position: 'absolute',
+              width: diag,
+              height: 1,
+              backgroundColor: t.clueLine,
+              left: (p.size - diag) / 2,
+              top: p.size / 2,
+              transform: [{ rotate: '45deg' }],
+            }}
+          />
+          {p.across != null ? (
+            <Text style={[styles.clueText, { color: t.clueText, fontSize: fs, right: 2, top: 1 }]}>{p.across}</Text>
+          ) : null}
+          {p.down != null ? (
+            <Text style={[styles.clueText, { color: t.clueText, fontSize: fs, left: 2, bottom: 1 }]}>{p.down}</Text>
+          ) : null}
+        </>
+      ) : null}
+    </View>
+  );
+});
 
 const styles = StyleSheet.create({
   cell: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
@@ -112,4 +196,6 @@ const styles = StyleSheet.create({
   place: { alignItems: 'center', justifyContent: 'center' },
   candGrid: { flexDirection: 'row', flexWrap: 'wrap', width: '100%', height: '100%' },
   cand: { alignItems: 'center', justifyContent: 'center' },
+  label: { position: 'absolute', top: 0, fontWeight: '700', includeFontPadding: false },
+  clueText: { position: 'absolute', fontWeight: '700', includeFontPadding: false, fontVariant: ['tabular-nums'] },
 });

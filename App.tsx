@@ -1,56 +1,80 @@
+import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, BackHandler, Text, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Dialog } from './src/components/Dialog';
-import { DIFFICULTY_LABEL, Difficulty } from './src/engine/logic';
+import { SavedGame } from './src/components/HomeParts';
+import { DIFFICULTY_NAMES, Difficulty } from './src/engine/common';
+import { TentsPuzzle } from './src/engine/tents';
+import { FONT_ASSETS } from './src/fonts';
 import { GameState, newGame } from './src/game/gameState';
 import { nextPuzzle } from './src/game/puzzleSource';
-import { GameScreen } from './src/screens/GameScreen';
+import { TentsGameState, newTentsGame } from './src/game/tentsState';
+import { GAMES } from './src/games/registry';
+import { GAME_TYPES, GameType } from './src/games/types';
+import { GameScreen, resolveGame } from './src/screens/GameScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
+import { TentsScreen } from './src/screens/TentsScreen';
+import { TypeScreen } from './src/screens/TypeScreen';
 import { SettingsProvider, useSettings } from './src/settings';
 import { EMPTY_STATS, Stats, loadStats } from './src/stats';
-import { loadRaw, remove } from './src/storage';
+import { loadRaw, migrateLegacy, remove } from './src/storage';
 import { useTheme } from './src/theme';
 
-type Screen = 'home' | 'game' | 'settings';
+type Screen = 'home' | 'type' | 'game' | 'settings';
 
 function Root() {
   const t = useTheme();
   const { settings, loaded } = useSettings();
+  const [fontsLoaded, fontError] = useFonts(FONT_ASSETS);
+  const [ready, setReady] = useState(false);
   const [screen, setScreen] = useState<Screen>('home');
   const [prevScreen, setPrevScreen] = useState<Screen>('home');
-  const [game, setGame] = useState<GameState | null>(null);
-  const [saved, setSaved] = useState<GameState | null>(null);
-  const [stats, setStats] = useState<Stats>(EMPTY_STATS);
-  const [generating, setGenerating] = useState<Difficulty | null>(null);
-  const [confirmNew, setConfirmNew] = useState<Difficulty | null>(null);
+  const [type, setType] = useState<GameType>('classic');
+  const [game, setGame] = useState<SavedGame | null>(null);
+  const [saved, setSaved] = useState<Partial<Record<GameType, SavedGame>>>({});
+  const [stats, setStats] = useState<Partial<Record<GameType, Stats>>>({});
+  const [generating, setGenerating] = useState<{ type: GameType; d: Difficulty } | null>(null);
+  const [confirmNew, setConfirmNew] = useState<{ type: GameType; d: Difficulty } | null>(null);
 
-  const refreshHome = useCallback(async () => {
-    const [g, s] = await Promise.all([loadRaw<GameState>('game'), loadStats()]);
-    setSaved(g && !g.completed ? g : null);
-    setStats(s);
+  const refresh = useCallback(async () => {
+    const games = await Promise.all(GAME_TYPES.map((ty) => loadRaw<SavedGame>(`game.${ty}`)));
+    const st = await Promise.all(GAME_TYPES.map((ty) => loadStats(ty)));
+    const nextSaved: Partial<Record<GameType, SavedGame>> = {};
+    const nextStats: Partial<Record<GameType, Stats>> = {};
+    GAME_TYPES.forEach((ty, i) => {
+      const g = games[i];
+      if (g && !g.completed) nextSaved[ty] = ty === 'tents' ? g : resolveGame(g as GameState);
+      nextStats[ty] = st[i];
+    });
+    setSaved(nextSaved);
+    setStats(nextStats);
   }, []);
 
   useEffect(() => {
-    // false positive: refreshHome only sets state after its awaits resolve
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    refreshHome();
-  }, [refreshHome]);
+    migrateLegacy()
+      .then(refresh)
+      .then(() => setReady(true));
+  }, [refresh]);
 
-  const goHome = useCallback(() => {
-    setScreen('home');
+  const leaveGame = useCallback(() => {
+    setScreen('type');
     setGame(null);
-    // let GameScreen's unmount save land first
-    setTimeout(refreshHome, 50);
-  }, [refreshHome]);
+    // let the game screen's unmount save land first
+    setTimeout(refresh, 50);
+  }, [refresh]);
 
   // Android hardware back button
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (screen === 'game') {
-        goHome();
+        leaveGame();
+        return true;
+      }
+      if (screen === 'type') {
+        setScreen('home');
         return true;
       }
       if (screen === 'settings') {
@@ -60,52 +84,88 @@ function Root() {
       return false;
     });
     return () => sub.remove();
-  }, [screen, prevScreen, goHome]);
+  }, [screen, prevScreen, leaveGame]);
 
-  const startNew = async (d: Difficulty) => {
+  const startNew = async (ty: GameType, d: Difficulty) => {
     setConfirmNew(null);
-    setGenerating(d);
+    setGenerating({ type: ty, d });
     setGame(null);
-    setScreen('home');
-    await remove('game');
-    const p = await nextPuzzle(d);
+    setType(ty);
+    setScreen('type');
+    await remove(`game.${ty}`);
+    const p = await nextPuzzle(ty, d);
+    let g: SavedGame;
+    if (ty === 'tents') {
+      g = newTentsGame(p.id, d, p.payload as TentsPuzzle);
+    } else {
+      const a = GAMES[ty].adapter!(p.payload);
+      g = newGame(p.id, d, a.givens, a.solution, settings.autoCandidates, { type: ty, payload: p.payload, rules: a.rules });
+    }
     setGenerating(null);
-    setGame(newGame(p.id, d, p.givens, p.solution, settings.autoCandidates));
+    setGame(g);
     setScreen('game');
   };
 
-  const requestNew = (d: Difficulty) => {
-    if (saved) setConfirmNew(d);
-    else startNew(d);
+  const requestNew = (ty: GameType, d: Difficulty) => {
+    if (saved[ty]) setConfirmNew({ type: ty, d });
+    else startNew(ty, d);
   };
 
-  if (!loaded) {
+  const resume = (ty: GameType) => {
+    const g = saved[ty];
+    if (!g) return;
+    setType(ty);
+    setGame(g);
+    setScreen('game');
+  };
+
+  // fonts are bundled, so they load almost instantly; fall back to system fonts on error
+  if (!loaded || !ready || (!fontsLoaded && !fontError)) {
     return <View style={{ flex: 1, backgroundColor: t.bg }} />;
+  }
+
+  let body: React.ReactNode;
+  if (screen === 'game' && game) {
+    body =
+      game.type === 'tents' ? (
+        <TentsScreen key={game.id} initial={game as TentsGameState} onExit={leaveGame} onNewGame={startNew} />
+      ) : (
+        <GameScreen key={game.id} initial={game as GameState} onExit={leaveGame} onNewGame={startNew} />
+      );
+  } else if (screen === 'settings') {
+    body = <SettingsScreen onBack={() => setScreen(prevScreen)} />;
+  } else if (screen === 'type') {
+    body = (
+      <TypeScreen
+        type={type}
+        saved={saved[type] ?? null}
+        stats={stats[type] ?? EMPTY_STATS}
+        onBack={() => setScreen('home')}
+        onResume={() => resume(type)}
+        onNew={(d) => requestNew(type, d)}
+      />
+    );
+  } else {
+    body = (
+      <HomeScreen
+        saved={saved}
+        onResume={resume}
+        onOpenType={(ty) => {
+          setType(ty);
+          setScreen('type');
+        }}
+        onSettings={() => {
+          setPrevScreen('home');
+          setScreen('settings');
+        }}
+      />
+    );
   }
 
   return (
     <View style={{ flex: 1, backgroundColor: t.bg }}>
       <StatusBar style={t.dark ? 'light' : 'dark'} />
-      {screen === 'game' && game ? (
-        <GameScreen key={game.id} initial={game} onExit={goHome} onNewGame={startNew} />
-      ) : screen === 'settings' ? (
-        <SettingsScreen onBack={() => setScreen(prevScreen)} />
-      ) : (
-        <HomeScreen
-          saved={saved}
-          stats={stats}
-          onContinue={() => {
-            if (!saved) return;
-            setGame(saved);
-            setScreen('game');
-          }}
-          onNew={requestNew}
-          onSettings={() => {
-            setPrevScreen('home');
-            setScreen('settings');
-          }}
-        />
-      )}
+      {body}
 
       <Dialog
         visible={!!confirmNew}
@@ -114,19 +174,19 @@ function Root() {
         onRequestClose={() => setConfirmNew(null)}
         buttons={[
           { label: 'Cancel', onPress: () => setConfirmNew(null) },
-          { label: 'Start new', onPress: () => confirmNew && startNew(confirmNew), primary: true },
+          { label: 'Start new', onPress: () => confirmNew && startNew(confirmNew.type, confirmNew.d), primary: true },
         ]}
       >
         <Text style={{ color: t.textMuted, fontSize: 15, lineHeight: 21 }}>
-          Your {saved ? DIFFICULTY_LABEL[saved.difficulty] : ''} game in progress will be lost.
+          Your {confirmNew ? GAMES[confirmNew.type].name : ''} game in progress will be lost.
         </Text>
       </Dialog>
 
       <Dialog visible={!!generating} title="Preparing puzzle" theme={t} buttons={[]}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
           <ActivityIndicator color={t.accent} />
-          <Text style={{ color: t.textMuted, fontSize: 15 }}>
-            Finding a {generating ? DIFFICULTY_LABEL[generating] : ''} puzzle…
+          <Text style={{ color: t.textMuted, fontSize: 15, flex: 1 }}>
+            Finding a {generating ? `${DIFFICULTY_NAMES[generating.d]} ${GAMES[generating.type].name}` : ''} puzzle…
           </Text>
         </View>
       </Dialog>

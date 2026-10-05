@@ -1,10 +1,18 @@
 // Pure game-state logic: placing digits, pencil marks, undo, rewind-to-first-
 // mistake, applying hints. No React here so it can be unit tested.
 
-import { Cands, Grid, PEERS, bit, computeCandidates, has } from '../engine/grid';
-import { effectiveCandidates } from '../engine/hint';
+import { CellDigit, DigitRules } from '../engine/common';
+import { Cands, Grid, bit, has } from '../engine/grid';
 import { Difficulty } from '../engine/logic';
-import { CellDigit, Step } from '../engine/techniques';
+import { legalCandidates } from '../engine/sudoku/core';
+import { CLASSIC } from '../engine/sudoku/geometry';
+import type { GameType } from '../games/types';
+
+/** The parts of a hint step the reducer needs (works for every engine). */
+export interface AppliedStep {
+  placements: CellDigit[];
+  eliminations: CellDigit[];
+}
 
 export interface Snapshot {
   values: Grid;
@@ -25,6 +33,11 @@ export interface HistoryEntry {
 
 export interface GameState {
   id: string;
+  /** Missing on games saved before game types existed: treat as classic. */
+  type?: GameType;
+  /** Type-specific puzzle data (cages, runs, regions…). */
+  payload?: unknown;
+  savedAt?: number;
   difficulty: Difficulty;
   givens: Grid;
   solution: Grid;
@@ -42,22 +55,41 @@ export type GameAction =
   | { type: 'erase'; cell: number; autoCandidates: boolean }
   | { type: 'undo' }
   | { type: 'rewind' }
-  | { type: 'applyStep'; step: Step }
+  | { type: 'applyStep'; step: AppliedStep }
   | { type: 'autoPlace'; placement: CellDigit }
   | { type: 'fillCandidates' }
   | { type: 'hintShown' }
   | { type: 'setElapsed'; ms: number }
   | { type: 'load'; state: GameState };
 
-export function newGame(id: string, difficulty: Difficulty, givens: Grid, solution: Grid, autoCandidates: boolean): GameState {
+/** Classic rules, used when no rules are supplied (and by the classic tests). */
+export const CLASSIC_RULES: DigitRules = {
+  cellCount: 81,
+  maxDigit: 9,
+  playable: new Array(81).fill(true),
+  peers: CLASSIC.peers,
+  legalCandidates: (values) => legalCandidates(CLASSIC, values),
+};
+
+export function newGame(
+  id: string,
+  difficulty: Difficulty,
+  givens: Grid,
+  solution: Grid,
+  autoCandidates: boolean,
+  extra: { type?: GameType; payload?: unknown; rules?: DigitRules } = {},
+): GameState {
+  const rules = extra.rules ?? CLASSIC_RULES;
   const values = givens.slice();
   return {
     id,
+    type: extra.type ?? 'classic',
+    payload: extra.payload,
     difficulty,
     givens: givens.slice(),
     solution: solution.slice(),
     values,
-    pencil: autoCandidates ? computeCandidates(values) : new Array(81).fill(0),
+    pencil: autoCandidates ? rules.legalCandidates(values) : new Array(givens.length).fill(0),
     history: [],
     mistakes: 0,
     hintsUsed: 0,
@@ -71,11 +103,11 @@ const snap = (s: GameState): Snapshot => ({ values: s.values.slice(), pencil: s.
 const isSolved = (values: Grid, solution: Grid) => values.every((v, i) => v === solution[i]);
 
 /** Place digit (no toggle). Mutates values/pencil; returns mistakes introduced. */
-function placeInto(values: Grid, pencil: Cands, solution: Grid, cell: number, digit: number): Mistake[] {
+function placeInto(rules: DigitRules, values: Grid, pencil: Cands, solution: Grid, cell: number, digit: number): Mistake[] {
   values[cell] = digit;
   pencil[cell] = 0;
   const b = bit(digit);
-  for (const p of PEERS[cell]) pencil[p] &= ~b;
+  for (const p of rules.peers[cell]) pencil[p] &= ~b;
   return digit !== solution[cell] ? [{ kind: 'value', cell, digit }] : [];
 }
 
@@ -113,7 +145,14 @@ export function removedCorrectCells(s: GameState): number[] {
 export const wrongCells = (s: GameState) =>
   s.values.map((v, i) => (v && !s.givens[i] && v !== s.solution[i] ? i : -1)).filter((i) => i >= 0);
 
-export function gameReducer(s: GameState, a: GameAction): GameState {
+/** A reducer bound to one puzzle's rules (peers, legal candidates). */
+export function makeGameReducer(rules: DigitRules) {
+  return (s: GameState, a: GameAction): GameState => reduce(rules, s, a);
+}
+
+export const gameReducer = makeGameReducer(CLASSIC_RULES);
+
+function reduce(rules: DigitRules, s: GameState, a: GameAction): GameState {
   if (a.type === 'load') return a.state;
   if (a.type === 'setElapsed') return { ...s, elapsedMs: a.ms };
   if (a.type === 'hintShown') return { ...s, hintsUsed: s.hintsUsed + 1 };
@@ -122,7 +161,7 @@ export function gameReducer(s: GameState, a: GameAction): GameState {
   switch (a.type) {
     case 'input': {
       const { cell, digit } = a;
-      if (s.givens[cell]) return s;
+      if (s.givens[cell] || !rules.playable[cell]) return s;
       const before = snap(s);
       const values = s.values.slice();
       const pencil = s.pencil.slice();
@@ -139,13 +178,13 @@ export function gameReducer(s: GameState, a: GameAction): GameState {
         values[cell] = 0;
         return commit(s, before, values, pencil, []);
       }
-      const mistakes = placeInto(values, pencil, s.solution, cell, digit);
+      const mistakes = placeInto(rules, values, pencil, s.solution, cell, digit);
       return commit(s, before, values, pencil, mistakes);
     }
 
     case 'erase': {
       const { cell } = a;
-      if (s.givens[cell]) return s;
+      if (s.givens[cell] || !rules.playable[cell]) return s;
       if (!s.values[cell] && !s.pencil[cell]) return s;
       const before = snap(s);
       const values = s.values.slice();
@@ -154,10 +193,10 @@ export function gameReducer(s: GameState, a: GameAction): GameState {
       if (old) {
         values[cell] = 0;
         if (a.autoCandidates) {
-          const legal = computeCandidates(values);
+          const legal = rules.legalCandidates(values);
           pencil[cell] = legal[cell];
           // give the erased digit back to peers that can hold it again
-          for (const p of PEERS[cell]) if (!values[p] && has(legal[p], old)) pencil[p] |= bit(old);
+          for (const p of rules.peers[cell]) if (!values[p] && has(legal[p], old)) pencil[p] |= bit(old);
         }
       } else {
         pencil[cell] = 0;
@@ -187,14 +226,14 @@ export function gameReducer(s: GameState, a: GameAction): GameState {
     case 'applyStep': {
       const before = snap(s);
       const values = s.values.slice();
-      const eff = effectiveCandidates(s.values, s.pencil);
+      const eff = rules.legalCandidates(s.values);
       const pencil = s.pencil.slice();
       for (const e of a.step.eliminations) {
         if (values[e.cell]) continue;
         pencil[e.cell] = (pencil[e.cell] || eff[e.cell]) & ~bit(e.digit);
       }
       const mistakes: Mistake[] = [];
-      for (const p of a.step.placements) mistakes.push(...placeInto(values, pencil, s.solution, p.cell, p.digit));
+      for (const p of a.step.placements) mistakes.push(...placeInto(rules, values, pencil, s.solution, p.cell, p.digit));
       return commit(s, before, values, pencil, mistakes);
     }
 
@@ -204,13 +243,13 @@ export function gameReducer(s: GameState, a: GameAction): GameState {
       const before = snap(s);
       const values = s.values.slice();
       const pencil = s.pencil.slice();
-      const mistakes = placeInto(values, pencil, s.solution, cell, digit);
+      const mistakes = placeInto(rules, values, pencil, s.solution, cell, digit);
       return commit(s, before, values, pencil, mistakes);
     }
 
     case 'fillCandidates': {
       const before = snap(s);
-      const legal = computeCandidates(s.values);
+      const legal = rules.legalCandidates(s.values);
       const pencil = s.pencil.map((m, i) => (s.values[i] ? 0 : m ? m & legal[i] : legal[i]));
       if (pencil.every((m, i) => m === s.pencil[i])) return s;
       return commit(s, before, s.values.slice(), pencil, []);

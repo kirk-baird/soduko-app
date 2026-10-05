@@ -1,4 +1,5 @@
 import { DIFFICULTIES, Difficulty } from './engine/logic';
+import { GameType } from './games/types';
 import { loadJSON, saveJSON } from './storage';
 
 export interface LevelStats {
@@ -12,19 +13,37 @@ export type Stats = Record<Difficulty, LevelStats>;
 const empty = (): LevelStats => ({ completed: 0, bestMs: null, totalMs: 0 });
 export const EMPTY_STATS = Object.fromEntries(DIFFICULTIES.map((d) => [d, empty()])) as Stats;
 
-export const loadStats = () => loadJSON<Stats>('stats', EMPTY_STATS);
+export const loadStats = (type: GameType) => loadJSON<Stats>(`stats.${type}`, EMPTY_STATS);
 
-/** Records a completion and returns { stats, isBest }. */
-export async function recordCompletion(d: Difficulty, ms: number): Promise<{ stats: Stats; isBest: boolean }> {
-  const stats = await loadStats();
+/**
+ * Pure stats update. Every solve counts toward `completed`, but only a solve
+ * with no hints can set a new best time.
+ */
+export function applyCompletion(
+  stats: Stats,
+  d: Difficulty,
+  ms: number,
+  hintsUsed: number,
+): { stats: Stats; isBest: boolean } {
   const cur = stats[d] ?? empty();
-  const isBest = cur.bestMs == null || ms < cur.bestMs;
+  const isBest = hintsUsed === 0 && (cur.bestMs == null || ms < cur.bestMs);
   const next: Stats = {
     ...stats,
     [d]: { completed: cur.completed + 1, totalMs: cur.totalMs + ms, bestMs: isBest ? ms : cur.bestMs },
   };
-  await saveJSON('stats', next);
   return { stats: next, isBest };
+}
+
+/** Records a completion and returns { stats, isBest }. */
+export async function recordCompletion(
+  type: GameType,
+  d: Difficulty,
+  ms: number,
+  hintsUsed: number,
+): Promise<{ stats: Stats; isBest: boolean }> {
+  const result = applyCompletion(await loadStats(type), d, ms, hintsUsed);
+  await saveJSON(`stats.${type}`, result.stats);
+  return result;
 }
 
 export function formatTime(ms: number): string {

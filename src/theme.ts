@@ -34,6 +34,25 @@ export interface Theme {
   hintElim: string;
   hintElimText: string;
   hintPlace: string;
+  // home screen
+  heroBg: string;
+  heroText: string;
+  heroMuted: string;
+  heroTrack: string;
+  heroButton: string;
+  heroButtonText: string;
+  levelRamp: [string, string, string, string]; // Medium → Extreme
+  pipEmpty: string;
+  // variants
+  cellShaded: string; // windoku windows
+  clueBg: string; // kakuro clue/black cells
+  clueLine: string;
+  clueText: string;
+  tree: string;
+  tent: string;
+  grass: string;
+  countDone: string;
+  countOver: string;
 }
 
 const light: Theme = {
@@ -67,6 +86,23 @@ const light: Theme = {
   hintElim: '#F6BDB7',
   hintElimText: '#B3261E',
   hintPlace: '#BDECC9',
+  heroBg: '#1F2A4D',
+  heroText: '#F4F6FC',
+  heroMuted: '#A9B3D1',
+  heroTrack: '#34406A',
+  heroButton: '#F4F6FC',
+  heroButtonText: '#1F2A4D',
+  levelRamp: ['#A9BDF0', '#6F8FE3', '#3A5CC7', '#1C2E86'],
+  pipEmpty: '#E4DFD5',
+  cellShaded: '#E3ECF8',
+  clueBg: '#2A2C3F',
+  clueLine: '#6B6F8A',
+  clueText: '#F4F6FC',
+  tree: '#2F7D4A',
+  tent: '#C0662B',
+  grass: '#9CC9A6',
+  countDone: '#2F7D4A',
+  countOver: '#CC3B30',
 };
 
 const dark: Theme = {
@@ -100,6 +136,23 @@ const dark: Theme = {
   hintElim: '#7A2D29',
   hintElimText: '#FFB4AB',
   hintPlace: '#2C5E3A',
+  heroBg: '#26314F',
+  heroText: '#F4F6FC',
+  heroMuted: '#A3ADCB',
+  heroTrack: '#3A466E',
+  heroButton: '#8DB4FF',
+  heroButtonText: '#0F1320',
+  levelRamp: ['#5468A8', '#6F8BDE', '#93ACF4', '#C7D4FF'],
+  pipEmpty: '#30344A',
+  cellShaded: '#24304A',
+  clueBg: '#0E0F15',
+  clueLine: '#4A4E66',
+  clueText: '#D9DCEB',
+  tree: '#5DBB7E',
+  tent: '#F09A5B',
+  grass: '#3E6B4C',
+  countDone: '#5DBB7E',
+  countOver: '#FF7B70',
 };
 
 export function useTheme(): Theme {

@@ -1,35 +1,18 @@
-// Human-style solving techniques.
+// Human-style solving techniques for every sudoku variant.
 //
-// Each technique inspects a State (placed values + candidate bitmasks) and
-// returns the first deduction it can make as a Step, or null. Steps carry
-// enough information to (a) apply the deduction, (b) highlight the pattern on
-// the board and (c) explain it in plain English. The same functions are used
-// to grade puzzle difficulty and to produce hints from the player's own
-// pencil marks.
+// Each technique inspects a State (placed values + candidate bitmasks) on a
+// Geometry and returns the first deduction it can make as a Step, or null.
+// Steps carry enough information to (a) apply the deduction, (b) highlight the
+// pattern on the board and (c) explain it in plain English. The same functions
+// grade puzzle difficulty and produce hints from the player's own pencil marks.
+//
+// The geometry defaults to classic 9×9, so classic callers can omit it.
 
-import {
-  BOX_UNITS,
-  COL_UNITS,
-  Cands,
-  Grid,
-  ROW_UNITS,
-  UNITS,
-  bit,
-  boxOf,
-  cellList,
-  cellName,
-  colOf,
-  combinations,
-  commonPeers,
-  digitList,
-  digitsOf,
-  firstDigit,
-  has,
-  popcount,
-  rowOf,
-  sees,
-  unitName,
-} from './grid';
+import { combinations } from './grid';
+import { CLASSIC, Geometry } from './sudoku/geometry';
+
+export type Grid = number[];
+export type Cands = number[];
 
 export interface State {
   values: Grid;
@@ -78,7 +61,7 @@ export interface Step {
   eliminations: CellDigit[];
   pattern: number[]; // cells that form the pattern
   keys: KeyCandidate[]; // candidates that justify the deduction
-  units: number[]; // units worth highlighting
+  units: number[]; // unit indices worth highlighting
   explanation: string;
 }
 
@@ -86,10 +69,33 @@ export interface Technique {
   id: TechniqueId;
   name: string;
   tier: number; // 0 easy, 1 medium, 2 hard, 3 extra hard, 4 extreme
-  find: (s: State) => Step | null;
+  find: (s: State, g?: Geometry) => Step | null;
 }
 
 // ---------- helpers ----------
+
+const bit = (d: number) => 1 << d;
+const has = (m: number, d: number) => (m & (1 << d)) !== 0;
+
+function popcount(m: number): number {
+  let n = 0;
+  while (m) {
+    m &= m - 1;
+    n++;
+  }
+  return n;
+}
+
+const digitsOf = (m: number, g: Geometry) => {
+  const out: number[] = [];
+  for (let d = 1; d <= g.n; d++) if (m & (1 << d)) out.push(d);
+  return out;
+};
+
+const firstDigit = (m: number, g: Geometry) => {
+  for (let d = 1; d <= g.n; d++) if (m & (1 << d)) return d;
+  return 0;
+};
 
 const empty = (s: State, i: number) => s.values[i] === 0;
 
@@ -100,6 +106,24 @@ const elimDigit = (s: State, cells: number[], d: number): CellDigit[] =>
   withDigit(s, cells, d).map((cell) => ({ cell, digit: d }));
 
 const uniq = (xs: number[]) => [...new Set(xs)];
+
+const sees = (g: Geometry, a: number, b: number) => g.peerSet[a][b] === 1;
+
+/** Cells (excluding the given ones) that see every cell in `cells`. */
+function commonPeers(g: Geometry, cells: number[]): number[] {
+  return g.peers[cells[0]].filter((i) => !cells.includes(i) && cells.every((c) => g.peerSet[i][c] === 1));
+}
+
+const sym = (g: Geometry, d: number) => g.symbol(d);
+const cn = (g: Geometry, i: number) => g.cellName(i);
+const cl = (g: Geometry, cells: number[]) => cells.map((i) => g.cellName(i)).join(', ');
+const un = (g: Geometry, u: number) => g.unitLabel[u];
+const dl = (g: Geometry, ds: number[]) => {
+  const s = ds.map((d) => g.symbol(d));
+  return s.length <= 1 ? s.join('') : s.slice(0, -1).join(', ') + ' and ' + s[s.length - 1];
+};
+const numList = (xs: (string | number)[]) =>
+  xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1];
 
 function step(
   technique: TechniqueId,
@@ -116,47 +140,56 @@ function step(
   };
 }
 
-const elimText = (elims: CellDigit[]) => {
+const elimText = (g: Geometry, elims: CellDigit[]) => {
   const byDigit = new Map<number, number[]>();
   for (const e of elims) byDigit.set(e.digit, [...(byDigit.get(e.digit) ?? []), e.cell]);
-  return [...byDigit.entries()].map(([d, cells]) => `${d} from ${cellList(cells)}`).join('; ');
+  return [...byDigit.entries()].map(([d, cells]) => `${sym(g, d)} from ${cl(g, cells)}`).join('; ');
 };
 
-const lineLabel = (isRow: boolean, idx: number) => (isRow ? `row ${idx + 1}` : `column ${idx + 1}`);
-
-/** Unit indices (into UNITS) where d has exactly two positions: conjugate pairs. */
-function strongLinks(s: State, d: number): [number, number, number][] {
+/** Conjugate pairs: units where d has exactly two positions. */
+function strongLinks(s: State, g: Geometry, d: number): [number, number, number][] {
   const out: [number, number, number][] = [];
-  for (let u = 0; u < 27; u++) {
-    const pos = withDigit(s, UNITS[u], d);
+  for (let u = 0; u < g.units.length; u++) {
+    const pos = withDigit(s, g.units[u], d);
     if (pos.length === 2) out.push([pos[0], pos[1], u]);
   }
   return out;
 }
 
+const isLine = (g: Geometry, u: number) => g.unitKind[u] === 'row' || g.unitKind[u] === 'col';
+
 // ---------- singles ----------
 
-function nakedSingle(s: State): Step | null {
-  for (let i = 0; i < 81; i++) {
+function nakedSingle(s: State, g: Geometry = CLASSIC): Step | null {
+  for (let i = 0; i < g.cellCount; i++) {
     if (!empty(s, i) || popcount(s.cands[i]) !== 1) continue;
-    const d = firstDigit(s.cands[i]);
+    const d = firstDigit(s.cands[i], g);
     return step('nakedSingle', {
       placements: [{ cell: i, digit: d }],
       pattern: [i],
       keys: [{ cell: i, digit: d }],
-      explanation: `${cellName(i)} has only one candidate left: ${d}. Place ${d} there.`,
+      explanation: `${cn(g, i)} has only one candidate left: ${sym(g, d)}. Place ${sym(g, d)} there.`,
     });
   }
   return null;
 }
 
-const HIDDEN_SINGLE_ORDER = [...Array(9).keys()].map((b) => 18 + b).concat([...Array(18).keys()]);
+const hiddenOrderCache = new WeakMap<Geometry, number[]>();
+function hiddenSingleOrder(g: Geometry): number[] {
+  let o = hiddenOrderCache.get(g);
+  if (!o) {
+    const all = g.units.map((_, u) => u);
+    o = [...all.filter((u) => !isLine(g, u)), ...all.filter((u) => isLine(g, u))];
+    hiddenOrderCache.set(g, o);
+  }
+  return o;
+}
 
-function hiddenSingle(s: State): Step | null {
-  for (const u of HIDDEN_SINGLE_ORDER) {
-    for (let d = 1; d <= 9; d++) {
-      if (UNITS[u].some((i) => s.values[i] === d)) continue;
-      const pos = withDigit(s, UNITS[u], d);
+function hiddenSingle(s: State, g: Geometry = CLASSIC): Step | null {
+  for (const u of hiddenSingleOrder(g)) {
+    for (let d = 1; d <= g.n; d++) {
+      if (g.units[u].some((i) => s.values[i] === d)) continue;
+      const pos = withDigit(s, g.units[u], d);
       if (pos.length !== 1) continue;
       const c = pos[0];
       return step('hiddenSingle', {
@@ -164,7 +197,7 @@ function hiddenSingle(s: State): Step | null {
         pattern: [c],
         keys: [{ cell: c, digit: d }],
         units: [u],
-        explanation: `In ${unitName(u)}, ${d} can only go in ${cellName(c)}. Place ${d} there.`,
+        explanation: `In ${un(g, u)}, ${sym(g, d)} can only go in ${cn(g, c)}. Place ${sym(g, d)} there.`,
       });
     }
   }
@@ -172,58 +205,38 @@ function hiddenSingle(s: State): Step | null {
 }
 
 // ---------- locked candidates ----------
+//
+// For units A and B that overlap in 2+ cells: if every candidate for d in A
+// lies inside B, then A's d is in A∩B, so B's d is too — remove d from B∖A.
+// "Pointing" when A is a box/region/window, "claiming" when A is a line.
 
-function pointing(s: State): Step | null {
-  for (let b = 0; b < 9; b++) {
-    for (let d = 1; d <= 9; d++) {
-      const pos = withDigit(s, BOX_UNITS[b], d);
-      if (pos.length < 2) continue;
-      for (const isRow of [true, false]) {
-        const lines = uniq(pos.map(isRow ? rowOf : colOf));
-        if (lines.length !== 1) continue;
-        const line = isRow ? ROW_UNITS[lines[0]] : COL_UNITS[lines[0]];
-        const elims = elimDigit(s, line.filter((i) => boxOf(i) !== b), d);
+function lockedCandidates(kind: 'pointing' | 'claiming') {
+  return (s: State, g: Geometry = CLASSIC): Step | null => {
+    for (const [a, b] of g.intersections) {
+      const aLine = isLine(g, a);
+      if ((kind === 'claiming') !== aLine) continue;
+      const inB = new Set(g.units[b]);
+      for (let d = 1; d <= g.n; d++) {
+        const pos = withDigit(s, g.units[a], d);
+        if (pos.length < 2 || !pos.every((c) => inB.has(c))) continue;
+        const inA = new Set(g.units[a]);
+        const elims = elimDigit(s, g.units[b].filter((i) => !inA.has(i)), d);
         if (!elims.length) continue;
-        const ln = lineLabel(isRow, lines[0]);
-        return step('pointing', {
+        const D = sym(g, d);
+        return step(kind, {
           eliminations: elims,
           pattern: pos,
           keys: pos.map((cell) => ({ cell, digit: d })),
-          units: [18 + b, isRow ? lines[0] : 9 + lines[0]],
+          units: [a, b],
           explanation:
-            `In box ${b + 1}, every ${d} candidate lies in ${ln} (${cellList(pos)}). ` +
-            `Whichever of those is ${d}, ${ln} gets its ${d} inside box ${b + 1}, ` +
-            `so ${d} can be removed from the rest of ${ln}: ${cellList(elims.map((e) => e.cell))}.`,
+            `In ${un(g, a)}, every ${D} candidate lies inside ${un(g, b)} (${cl(g, pos)}). ` +
+            `Whichever of those is ${D}, ${un(g, b)} gets its ${D} there, ` +
+            `so ${D} can be removed from the rest of ${un(g, b)}: ${cl(g, elims.map((e) => e.cell))}.`,
         });
       }
     }
-  }
-  return null;
-}
-
-function claiming(s: State): Step | null {
-  for (let u = 0; u < 18; u++) {
-    for (let d = 1; d <= 9; d++) {
-      const pos = withDigit(s, UNITS[u], d);
-      if (pos.length < 2) continue;
-      const boxes = uniq(pos.map(boxOf));
-      if (boxes.length !== 1) continue;
-      const b = boxes[0];
-      const elims = elimDigit(s, BOX_UNITS[b].filter((i) => !UNITS[u].includes(i)), d);
-      if (!elims.length) continue;
-      return step('claiming', {
-        eliminations: elims,
-        pattern: pos,
-        keys: pos.map((cell) => ({ cell, digit: d })),
-        units: [u, 18 + b],
-        explanation:
-          `In ${unitName(u)}, every ${d} candidate lies inside box ${b + 1} (${cellList(pos)}). ` +
-          `So the ${d} for ${unitName(u)} must come from box ${b + 1}, which means no other cell in box ${b + 1} can be ${d}. ` +
-          `Remove ${d} from ${cellList(elims.map((e) => e.cell))}.`,
-      });
-    }
-  }
-  return null;
+    return null;
+  };
 }
 
 // ---------- subsets ----------
@@ -231,9 +244,9 @@ function claiming(s: State): Step | null {
 const SUBSET_WORD = ['', '', 'pair', 'triple', 'quad'];
 
 function nakedSubset(n: number, id: TechniqueId) {
-  return (s: State): Step | null => {
-    for (let u = 0; u < 27; u++) {
-      const cells = UNITS[u].filter((i) => empty(s, i));
+  return (s: State, g: Geometry = CLASSIC): Step | null => {
+    for (let u = 0; u < g.units.length; u++) {
+      const cells = g.units[u].filter((i) => empty(s, i));
       const small = cells.filter((i) => {
         const p = popcount(s.cands[i]);
         return p >= 2 && p <= n;
@@ -242,7 +255,7 @@ function nakedSubset(n: number, id: TechniqueId) {
       for (const combo of combinations(small, n)) {
         const union = combo.reduce((m, i) => m | s.cands[i], 0);
         if (popcount(union) !== n) continue;
-        const ds = digitsOf(union);
+        const ds = digitsOf(union, g);
         const others = cells.filter((i) => !combo.includes(i));
         const elims: CellDigit[] = [];
         for (const i of others) for (const d of ds) if (has(s.cands[i], d)) elims.push({ cell: i, digit: d });
@@ -250,12 +263,12 @@ function nakedSubset(n: number, id: TechniqueId) {
         return step(id, {
           eliminations: elims,
           pattern: combo,
-          keys: combo.flatMap((cell) => digitsOf(s.cands[cell]).map((digit) => ({ cell, digit }))),
+          keys: combo.flatMap((cell) => digitsOf(s.cands[cell], g).map((digit) => ({ cell, digit }))),
           units: [u],
           explanation:
-            `Naked ${SUBSET_WORD[n]}: in ${unitName(u)}, the ${n} cells ${cellList(combo)} only contain the candidates ${digitList(ds)}. ` +
-            `Those ${n} cells must hold exactly those ${n} digits, so they can't appear anywhere else in ${unitName(u)}. ` +
-            `Remove ${elimText(elims)}.`,
+            `Naked ${SUBSET_WORD[n]}: in ${un(g, u)}, the ${n} cells ${cl(g, combo)} only contain the candidates ${dl(g, ds)}. ` +
+            `Those ${n} cells must hold exactly those ${n} digits, so they can't appear anywhere else in ${un(g, u)}. ` +
+            `Remove ${elimText(g, elims)}.`,
         });
       }
     }
@@ -264,12 +277,13 @@ function nakedSubset(n: number, id: TechniqueId) {
 }
 
 function hiddenSubset(n: number, id: TechniqueId) {
-  return (s: State): Step | null => {
-    for (let u = 0; u < 27; u++) {
-      const cells = UNITS[u];
+  return (s: State, g: Geometry = CLASSIC): Step | null => {
+    for (let u = 0; u < g.units.length; u++) {
+      const cells = g.units[u];
+      if (cells.length !== g.n) continue; // only complete units hold every digit
       const placed = new Set(cells.map((i) => s.values[i]).filter(Boolean));
       const positions = new Map<number, number[]>();
-      for (let d = 1; d <= 9; d++) {
+      for (let d = 1; d <= g.n; d++) {
         if (placed.has(d)) continue;
         const pos = withDigit(s, cells, d);
         if (pos.length >= 2 && pos.length <= n) positions.set(d, pos);
@@ -281,7 +295,7 @@ function hiddenSubset(n: number, id: TechniqueId) {
         if (where.length !== n) continue;
         const keep = combo.reduce((m, d) => m | bit(d), 0);
         const elims: CellDigit[] = [];
-        for (const i of where) for (const d of digitsOf(s.cands[i] & ~keep)) elims.push({ cell: i, digit: d });
+        for (const i of where) for (const d of digitsOf(s.cands[i] & ~keep, g)) elims.push({ cell: i, digit: d });
         if (!elims.length) continue;
         return step(id, {
           eliminations: elims,
@@ -289,8 +303,8 @@ function hiddenSubset(n: number, id: TechniqueId) {
           keys: where.flatMap((cell) => combo.filter((d) => has(s.cands[cell], d)).map((digit) => ({ cell, digit }))),
           units: [u],
           explanation:
-            `Hidden ${SUBSET_WORD[n]}: in ${unitName(u)}, the digits ${digitList(combo)} can only go in ${cellList(where)}. ` +
-            `Those ${n} cells must therefore hold exactly those digits, so every other candidate in them can be removed: ${elimText(elims)}.`,
+            `Hidden ${SUBSET_WORD[n]}: in ${un(g, u)}, the digits ${dl(g, combo)} can only go in ${cl(g, where)}. ` +
+            `Those ${n} cells must therefore hold exactly those digits, so every other candidate in them can be removed: ${elimText(g, elims)}.`,
         });
       }
     }
@@ -303,46 +317,47 @@ function hiddenSubset(n: number, id: TechniqueId) {
 const FISH_NAME = ['', '', 'X-Wing', 'Swordfish', 'Jellyfish'];
 
 function fish(n: number, id: TechniqueId) {
-  return (s: State): Step | null => {
-    for (let d = 1; d <= 9; d++) {
-      for (const rowBase of [true, false]) {
-        const base = rowBase ? ROW_UNITS : COL_UNITS;
-        const cover = rowBase ? COL_UNITS : ROW_UNITS;
-        const coverIdx = rowBase ? colOf : rowOf;
-        const cand: { line: number; covers: number[]; cells: number[] }[] = [];
-        for (let l = 0; l < 9; l++) {
-          const cells = withDigit(s, base[l], d);
-          if (cells.length >= 2 && cells.length <= n) cand.push({ line: l, covers: cells.map(coverIdx), cells });
-        }
-        if (cand.length < n) continue;
-        for (const combo of combinations(cand, n)) {
-          const covers = uniq(combo.flatMap((c) => c.covers)).sort((a, b) => a - b);
-          if (covers.length !== n) continue;
-          const baseLines = combo.map((c) => c.line);
-          const elims: CellDigit[] = [];
-          for (const cl of covers) {
-            for (const i of cover[cl]) {
-              const bl = rowBase ? rowOf(i) : colOf(i);
-              if (!baseLines.includes(bl) && empty(s, i) && has(s.cands[i], d)) elims.push({ cell: i, digit: d });
-            }
+  return (s: State, g: Geometry = CLASSIC): Step | null => {
+    for (const grp of g.lineGroups) {
+      for (let d = 1; d <= g.n; d++) {
+        for (const rowBase of [true, false]) {
+          const base = rowBase ? grp.rows : grp.cols;
+          const cover = rowBase ? grp.cols : grp.rows;
+          const coverIdx = rowBase ? grp.colIndex : grp.rowIndex;
+          const baseIdx = rowBase ? grp.rowIndex : grp.colIndex;
+          const cand: { line: number; covers: number[]; cells: number[] }[] = [];
+          for (let l = 0; l < base.length; l++) {
+            const cells = withDigit(s, g.units[base[l]], d);
+            if (cells.length >= 2 && cells.length <= n) cand.push({ line: l, covers: cells.map((c) => coverIdx.get(c)!), cells });
           }
-          if (!elims.length) continue;
-          const cells = combo.flatMap((c) => c.cells);
-          const bName = rowBase ? 'rows' : 'columns';
-          const cName = rowBase ? 'columns' : 'rows';
-          const bl = baseLines.map((x) => x + 1);
-          const cl = covers.map((x) => x + 1);
-          return step(id, {
-            eliminations: elims,
-            pattern: cells,
-            keys: cells.map((cell) => ({ cell, digit: d })),
-            units: [...baseLines.map((l) => (rowBase ? l : 9 + l))],
-            explanation:
-              `${FISH_NAME[n]} on ${d}: in ${bName} ${digitList(bl)}, the ${d} candidates are confined to ${cName} ${digitList(cl)}. ` +
-              `Each of those ${n} ${bName} needs a ${d}, and they can only take them from those ${n} ${cName}, ` +
-              `so between them they use up every ${d} in ${cName} ${digitList(cl)}. ` +
-              `Remove ${d} from the rest of those ${cName}: ${cellList(elims.map((e) => e.cell))}.`,
-          });
+          if (cand.length < n) continue;
+          for (const combo of combinations(cand, n)) {
+            const covers = uniq(combo.flatMap((c) => c.covers)).sort((a, b) => a - b);
+            if (covers.length !== n) continue;
+            const baseLines = combo.map((c) => c.line);
+            const elims: CellDigit[] = [];
+            for (const k of covers) {
+              for (const i of g.units[cover[k]]) {
+                if (!baseLines.includes(baseIdx.get(i)!) && empty(s, i) && has(s.cands[i], d)) elims.push({ cell: i, digit: d });
+              }
+            }
+            if (!elims.length) continue;
+            const cells = combo.flatMap((c) => c.cells);
+            const bl = baseLines.map((l) => un(g, base[l]));
+            const cvl = covers.map((k) => un(g, cover[k]));
+            const D = sym(g, d);
+            return step(id, {
+              eliminations: elims,
+              pattern: cells,
+              keys: cells.map((cell) => ({ cell, digit: d })),
+              units: baseLines.map((l) => base[l]),
+              explanation:
+                `${FISH_NAME[n]} on ${D}: in ${numList(bl)}, the ${D} candidates are confined to ${numList(cvl)}. ` +
+                `Each of those ${n} lines needs a ${D}, and they can only take them from those ${n} crossing lines, ` +
+                `so between them they use up every ${D} there. ` +
+                `Remove ${D} from the rest of ${numList(cvl)}: ${cl(g, elims.map((e) => e.cell))}.`,
+            });
+          }
         }
       }
     }
@@ -352,44 +367,47 @@ function fish(n: number, id: TechniqueId) {
 
 // ---------- single-digit patterns ----------
 
-function skyscraper(s: State): Step | null {
-  for (let d = 1; d <= 9; d++) {
-    for (const rowBase of [true, false]) {
-      const base = rowBase ? ROW_UNITS : COL_UNITS;
-      const coverIdx = rowBase ? colOf : rowOf;
-      const lines: { l: number; cells: number[] }[] = [];
-      for (let l = 0; l < 9; l++) {
-        const cells = withDigit(s, base[l], d);
-        if (cells.length === 2) lines.push({ l, cells });
-      }
-      for (const [A, B] of combinations(lines, 2)) {
-        for (let i = 0; i < 2; i++) {
-          for (let j = 0; j < 2; j++) {
-            const a = A.cells[i];
-            const b = B.cells[j];
-            const ea = A.cells[1 - i];
-            const eb = B.cells[1 - j];
-            if (coverIdx(a) !== coverIdx(b) || coverIdx(ea) === coverIdx(eb)) continue;
-            const elims = elimDigit(s, commonPeers([ea, eb]), d);
-            if (!elims.length) continue;
-            const shared = lineLabel(!rowBase, coverIdx(a));
-            return step('skyscraper', {
-              eliminations: elims,
-              pattern: [a, ea, b, eb],
-              keys: [
-                { cell: a, digit: d, color: 1 },
-                { cell: b, digit: d, color: 1 },
-                { cell: ea, digit: d },
-                { cell: eb, digit: d },
-              ],
-              units: rowBase ? [A.l, B.l] : [9 + A.l, 9 + B.l],
-              explanation:
-                `Skyscraper on ${d}: in ${lineLabel(rowBase, A.l)} the ${d} is either ${cellName(a)} or ${cellName(ea)}; ` +
-                `in ${lineLabel(rowBase, B.l)} it is either ${cellName(b)} or ${cellName(eb)}. ` +
-                `${cellName(a)} and ${cellName(b)} are both in ${shared}, so at most one of them is ${d} — ` +
-                `meaning at least one of ${cellName(ea)} or ${cellName(eb)} must be ${d}. ` +
-                `Any cell that sees both can't be ${d}: remove ${d} from ${cellList(elims.map((e) => e.cell))}.`,
-            });
+function skyscraper(s: State, g: Geometry = CLASSIC): Step | null {
+  for (const grp of g.lineGroups) {
+    for (let d = 1; d <= g.n; d++) {
+      for (const rowBase of [true, false]) {
+        const base = rowBase ? grp.rows : grp.cols;
+        const cover = rowBase ? grp.cols : grp.rows;
+        const coverIdx = rowBase ? grp.colIndex : grp.rowIndex;
+        const lines: { l: number; cells: number[] }[] = [];
+        for (let l = 0; l < base.length; l++) {
+          const cells = withDigit(s, g.units[base[l]], d);
+          if (cells.length === 2) lines.push({ l, cells });
+        }
+        for (const [A, B] of combinations(lines, 2)) {
+          for (let i = 0; i < 2; i++) {
+            for (let j = 0; j < 2; j++) {
+              const a = A.cells[i];
+              const b = B.cells[j];
+              const ea = A.cells[1 - i];
+              const eb = B.cells[1 - j];
+              if (coverIdx.get(a) !== coverIdx.get(b) || coverIdx.get(ea) === coverIdx.get(eb)) continue;
+              const elims = elimDigit(s, commonPeers(g, [ea, eb]), d);
+              if (!elims.length) continue;
+              const D = sym(g, d);
+              return step('skyscraper', {
+                eliminations: elims,
+                pattern: [a, ea, b, eb],
+                keys: [
+                  { cell: a, digit: d, color: 1 },
+                  { cell: b, digit: d, color: 1 },
+                  { cell: ea, digit: d },
+                  { cell: eb, digit: d },
+                ],
+                units: [base[A.l], base[B.l]],
+                explanation:
+                  `Skyscraper on ${D}: in ${un(g, base[A.l])} the ${D} is either ${cn(g, a)} or ${cn(g, ea)}; ` +
+                  `in ${un(g, base[B.l])} it is either ${cn(g, b)} or ${cn(g, eb)}. ` +
+                  `${cn(g, a)} and ${cn(g, b)} are both in ${un(g, cover[coverIdx.get(a)!])}, so at most one of them is ${D} — ` +
+                  `meaning at least one of ${cn(g, ea)} or ${cn(g, eb)} must be ${D}. ` +
+                  `Any cell that sees both can't be ${D}: remove ${D} from ${cl(g, elims.map((e) => e.cell))}.`,
+              });
+            }
           }
         }
       }
@@ -398,45 +416,52 @@ function skyscraper(s: State): Step | null {
   return null;
 }
 
-function twoStringKite(s: State): Step | null {
-  for (let d = 1; d <= 9; d++) {
-    const rows: { l: number; cells: number[] }[] = [];
-    const cols: { l: number; cells: number[] }[] = [];
-    for (let l = 0; l < 9; l++) {
-      const r = withDigit(s, ROW_UNITS[l], d);
-      if (r.length === 2) rows.push({ l, cells: r });
-      const c = withDigit(s, COL_UNITS[l], d);
-      if (c.length === 2) cols.push({ l, cells: c });
-    }
-    for (const R of rows) {
-      for (const C of cols) {
-        if (R.cells.some((x) => C.cells.includes(x))) continue;
-        for (let i = 0; i < 2; i++) {
-          for (let j = 0; j < 2; j++) {
-            const ri = R.cells[i];
-            const cj = C.cells[j];
-            if (boxOf(ri) !== boxOf(cj)) continue;
-            const re = R.cells[1 - i];
-            const ce = C.cells[1 - j];
-            const elims = elimDigit(s, commonPeers([re, ce]), d);
-            if (!elims.length) continue;
-            return step('twoStringKite', {
-              eliminations: elims,
-              pattern: [ri, re, cj, ce],
-              keys: [
-                { cell: ri, digit: d, color: 1 },
-                { cell: cj, digit: d, color: 1 },
-                { cell: re, digit: d },
-                { cell: ce, digit: d },
-              ],
-              units: [R.l, 9 + C.l],
-              explanation:
-                `2-String Kite on ${d}: in row ${R.l + 1} the ${d} is either ${cellName(ri)} or ${cellName(re)}; ` +
-                `in column ${C.l + 1} it is either ${cellName(cj)} or ${cellName(ce)}. ` +
-                `${cellName(ri)} and ${cellName(cj)} share box ${boxOf(ri) + 1}, so they can't both be ${d} — ` +
-                `so at least one of ${cellName(re)} or ${cellName(ce)} is ${d}. ` +
-                `Remove ${d} from cells that see both: ${cellList(elims.map((e) => e.cell))}.`,
-            });
+function twoStringKite(s: State, g: Geometry = CLASSIC): Step | null {
+  for (const grp of g.lineGroups) {
+    for (let d = 1; d <= g.n; d++) {
+      const rows: { u: number; cells: number[] }[] = [];
+      const cols: { u: number; cells: number[] }[] = [];
+      for (const u of grp.rows) {
+        const r = withDigit(s, g.units[u], d);
+        if (r.length === 2) rows.push({ u, cells: r });
+      }
+      for (const u of grp.cols) {
+        const c = withDigit(s, g.units[u], d);
+        if (c.length === 2) cols.push({ u, cells: c });
+      }
+      for (const R of rows) {
+        for (const C of cols) {
+          if (R.cells.some((x) => C.cells.includes(x))) continue;
+          for (let i = 0; i < 2; i++) {
+            for (let j = 0; j < 2; j++) {
+              const ri = R.cells[i];
+              const cj = C.cells[j];
+              if (!sees(g, ri, cj)) continue;
+              const shared = g.cellUnits[ri].find((u) => !isLine(g, u) && g.cellUnits[cj].includes(u));
+              if (shared === undefined) continue;
+              const re = R.cells[1 - i];
+              const ce = C.cells[1 - j];
+              const elims = elimDigit(s, commonPeers(g, [re, ce]), d);
+              if (!elims.length) continue;
+              const D = sym(g, d);
+              return step('twoStringKite', {
+                eliminations: elims,
+                pattern: [ri, re, cj, ce],
+                keys: [
+                  { cell: ri, digit: d, color: 1 },
+                  { cell: cj, digit: d, color: 1 },
+                  { cell: re, digit: d },
+                  { cell: ce, digit: d },
+                ],
+                units: [R.u, C.u],
+                explanation:
+                  `2-String Kite on ${D}: in ${un(g, R.u)} the ${D} is either ${cn(g, ri)} or ${cn(g, re)}; ` +
+                  `in ${un(g, C.u)} it is either ${cn(g, cj)} or ${cn(g, ce)}. ` +
+                  `${cn(g, ri)} and ${cn(g, cj)} share ${un(g, shared)}, so they can't both be ${D} — ` +
+                  `so at least one of ${cn(g, re)} or ${cn(g, ce)} is ${D}. ` +
+                  `Remove ${D} from cells that see both: ${cl(g, elims.map((e) => e.cell))}.`,
+              });
+            }
           }
         }
       }
@@ -445,9 +470,9 @@ function twoStringKite(s: State): Step | null {
   return null;
 }
 
-function simpleColoring(s: State): Step | null {
-  for (let d = 1; d <= 9; d++) {
-    const links = strongLinks(s, d);
+function simpleColoring(s: State, g: Geometry = CLASSIC): Step | null {
+  for (let d = 1; d <= g.n; d++) {
+    const links = strongLinks(s, g, d);
     const adj = new Map<number, number[]>();
     for (const [a, b] of links) {
       adj.set(a, [...(adj.get(a) ?? []), b]);
@@ -470,35 +495,33 @@ function simpleColoring(s: State): Step | null {
         }
       }
       if (comp.length < 3) continue;
+      const D = sym(g, d);
       const keys = comp.map((cell) => ({ cell, digit: d, color: color.get(cell)! }));
       const intro =
-        `Simple Colouring on ${d}: following the chain of conjugate pairs (units where ${d} has exactly two spots), ` +
-        `the cells alternate between two colours, and exactly one colour holds all the ${d}s. `;
+        `Simple Colouring on ${D}: following the chain of conjugate pairs (units where ${D} has exactly two spots), ` +
+        `the cells alternate between two colours, and exactly one colour holds all the ${D}s. `;
 
-      // Colour wrap: two cells of the same colour see each other.
       for (const c of [0, 1] as const) {
         const same = comp.filter((x) => color.get(x) === c);
-        const clash = combinations(same, 2).find(([a, b]) => sees(a, b));
+        const clash = combinations(same, 2).find(([a, b]) => sees(g, a, b));
         if (clash) {
-          const elims = same.map((cell) => ({ cell, digit: d }));
           return step('simpleColoring', {
-            eliminations: elims,
+            eliminations: same.map((cell) => ({ cell, digit: d })),
             pattern: comp,
             keys,
             explanation:
               intro +
-              `${cellName(clash[0])} and ${cellName(clash[1])} have the same colour but see each other, so that colour can't be the true one. ` +
-              `Remove ${d} from every cell of that colour: ${cellList(same)}.`,
+              `${cn(g, clash[0])} and ${cn(g, clash[1])} have the same colour but see each other, so that colour can't be the true one. ` +
+              `Remove ${D} from every cell of that colour: ${cl(g, same)}.`,
           });
         }
       }
-      // Colour trap: an uncoloured cell sees both colours.
       const elims: CellDigit[] = [];
       let example: [number, number, number] | null = null;
-      for (let i = 0; i < 81; i++) {
+      for (let i = 0; i < g.cellCount; i++) {
         if (!empty(s, i) || !has(s.cands[i], d) || color.has(i)) continue;
-        const a = comp.find((x) => color.get(x) === 0 && sees(i, x));
-        const b = comp.find((x) => color.get(x) === 1 && sees(i, x));
+        const a = comp.find((x) => color.get(x) === 0 && sees(g, i, x));
+        const b = comp.find((x) => color.get(x) === 1 && sees(g, i, x));
         if (a !== undefined && b !== undefined) {
           elims.push({ cell: i, digit: d });
           example ??= [i, a, b];
@@ -511,9 +534,9 @@ function simpleColoring(s: State): Step | null {
           keys,
           explanation:
             intro +
-            `${cellName(example[0])} sees ${cellName(example[1])} (one colour) and ${cellName(example[2])} (the other), ` +
-            `so whichever colour is true, ${cellName(example[0])} can't be ${d}. ` +
-            `Remove ${d} from ${cellList(elims.map((e) => e.cell))}.`,
+            `${cn(g, example[0])} sees ${cn(g, example[1])} (one colour) and ${cn(g, example[2])} (the other), ` +
+            `so whichever colour is true, ${cn(g, example[0])} can't be ${D}. ` +
+            `Remove ${D} from ${cl(g, elims.map((e) => e.cell))}.`,
         });
       }
     }
@@ -523,29 +546,30 @@ function simpleColoring(s: State): Step | null {
 
 // ---------- wings ----------
 
-function bivalueCells(s: State) {
+function bivalueCells(s: State, g: Geometry) {
   const out: number[] = [];
-  for (let i = 0; i < 81; i++) if (empty(s, i) && popcount(s.cands[i]) === 2) out.push(i);
+  for (let i = 0; i < g.cellCount; i++) if (empty(s, i) && popcount(s.cands[i]) === 2) out.push(i);
   return out;
 }
 
-function xyWing(s: State): Step | null {
-  const bv = bivalueCells(s);
+function xyWing(s: State, g: Geometry = CLASSIC): Step | null {
+  const bv = bivalueCells(s, g);
   for (const p of bv) {
-    const [x, y] = digitsOf(s.cands[p]);
+    const [x, y] = digitsOf(s.cands[p], g);
     for (const a of bv) {
-      if (a === p || !sees(p, a)) continue;
+      if (a === p || !sees(g, p, a)) continue;
       for (const [link, other] of [
         [x, y],
         [y, x],
       ]) {
         if (!has(s.cands[a], link) || has(s.cands[a], other)) continue;
-        const z = firstDigit(s.cands[a] & ~bit(link));
+        const z = firstDigit(s.cands[a] & ~bit(link), g);
         for (const b of bv) {
-          if (b === p || b === a || !sees(p, b)) continue;
+          if (b === p || b === a || !sees(g, p, b)) continue;
           if (s.cands[b] !== (bit(other) | bit(z))) continue;
-          const elims = elimDigit(s, commonPeers([a, b]), z);
+          const elims = elimDigit(s, commonPeers(g, [a, b]), z);
           if (!elims.length) continue;
+          const [L, O, Z] = [sym(g, link), sym(g, other), sym(g, z)];
           return step('xyWing', {
             eliminations: elims,
             pattern: [p, a, b],
@@ -558,11 +582,11 @@ function xyWing(s: State): Step | null {
               { cell: b, digit: z },
             ],
             explanation:
-              `XY-Wing: the pivot ${cellName(p)} is ${link} or ${other}. ` +
-              `If it's ${link}, then ${cellName(a)} (${link}/${z}) must be ${z}. ` +
-              `If it's ${other}, then ${cellName(b)} (${other}/${z}) must be ${z}. ` +
-              `Either way one of ${cellName(a)} or ${cellName(b)} is ${z}, so any cell that sees both can't be ${z}: ` +
-              `remove ${z} from ${cellList(elims.map((e) => e.cell))}.`,
+              `XY-Wing: the pivot ${cn(g, p)} is ${L} or ${O}. ` +
+              `If it's ${L}, then ${cn(g, a)} (${L}/${Z}) must be ${Z}. ` +
+              `If it's ${O}, then ${cn(g, b)} (${O}/${Z}) must be ${Z}. ` +
+              `Either way one of ${cn(g, a)} or ${cn(g, b)} is ${Z}, so any cell that sees both can't be ${Z}: ` +
+              `remove ${Z} from ${cl(g, elims.map((e) => e.cell))}.`,
           });
         }
       }
@@ -571,57 +595,60 @@ function xyWing(s: State): Step | null {
   return null;
 }
 
-function xyzWing(s: State): Step | null {
-  const bv = bivalueCells(s);
-  for (let p = 0; p < 81; p++) {
+function xyzWing(s: State, g: Geometry = CLASSIC): Step | null {
+  const bv = bivalueCells(s, g);
+  for (let p = 0; p < g.cellCount; p++) {
     if (!empty(s, p) || popcount(s.cands[p]) !== 3) continue;
     const pm = s.cands[p];
-    const wings = bv.filter((w) => sees(p, w) && (s.cands[w] & ~pm) === 0);
+    const wings = bv.filter((w) => sees(g, p, w) && (s.cands[w] & ~pm) === 0);
     for (const [a, b] of combinations(wings, 2)) {
       if (s.cands[a] === s.cands[b]) continue;
       const shared = s.cands[a] & s.cands[b];
       if (popcount(shared) !== 1 || (s.cands[a] | s.cands[b]) !== pm) continue;
-      const z = firstDigit(shared);
-      const elims = elimDigit(s, commonPeers([p, a, b]), z);
+      const z = firstDigit(shared, g);
+      const elims = elimDigit(s, commonPeers(g, [p, a, b]), z);
       if (!elims.length) continue;
+      const Z = sym(g, z);
+      const col = (digit: number) => (digit === z ? 0 : 1) as 0 | 1;
       return step('xyzWing', {
         eliminations: elims,
         pattern: [p, a, b],
         keys: [
-          ...digitsOf(pm).map((digit) => ({ cell: p, digit, color: (digit === z ? 0 : 1) as 0 | 1 })),
-          ...digitsOf(s.cands[a]).map((digit) => ({ cell: a, digit, color: (digit === z ? 0 : 1) as 0 | 1 })),
-          ...digitsOf(s.cands[b]).map((digit) => ({ cell: b, digit, color: (digit === z ? 0 : 1) as 0 | 1 })),
+          ...digitsOf(pm, g).map((digit) => ({ cell: p, digit, color: col(digit) })),
+          ...digitsOf(s.cands[a], g).map((digit) => ({ cell: a, digit, color: col(digit) })),
+          ...digitsOf(s.cands[b], g).map((digit) => ({ cell: b, digit, color: col(digit) })),
         ],
         explanation:
-          `XYZ-Wing: the pivot ${cellName(p)} is ${digitList(digitsOf(pm))}; ${cellName(a)} is ${digitList(digitsOf(s.cands[a]))} ` +
-          `and ${cellName(b)} is ${digitList(digitsOf(s.cands[b]))}, both seeing the pivot. ` +
-          `If the pivot isn't ${z}, it takes one wing's other digit and forces that wing to ${z}. ` +
-          `So one of these three cells is always ${z}, and any cell that sees all three can't be ${z}: ` +
-          `remove ${z} from ${cellList(elims.map((e) => e.cell))}.`,
+          `XYZ-Wing: the pivot ${cn(g, p)} is ${dl(g, digitsOf(pm, g))}; ${cn(g, a)} is ${dl(g, digitsOf(s.cands[a], g))} ` +
+          `and ${cn(g, b)} is ${dl(g, digitsOf(s.cands[b], g))}, both seeing the pivot. ` +
+          `If the pivot isn't ${Z}, it takes one wing's other digit and forces that wing to ${Z}. ` +
+          `So one of these three cells is always ${Z}, and any cell that sees all three can't be ${Z}: ` +
+          `remove ${Z} from ${cl(g, elims.map((e) => e.cell))}.`,
       });
     }
   }
   return null;
 }
 
-function wWing(s: State): Step | null {
-  const bv = bivalueCells(s);
+function wWing(s: State, g: Geometry = CLASSIC): Step | null {
+  const bv = bivalueCells(s, g);
   for (const [p, q] of combinations(bv, 2)) {
-    if (s.cands[p] !== s.cands[q] || sees(p, q)) continue;
-    const [x, y] = digitsOf(s.cands[p]);
+    if (s.cands[p] !== s.cands[q] || sees(g, p, q)) continue;
+    const [x, y] = digitsOf(s.cands[p], g);
     for (const [link, elimD] of [
       [x, y],
       [y, x],
     ]) {
-      const targets = elimDigit(s, commonPeers([p, q]), elimD);
+      const targets = elimDigit(s, commonPeers(g, [p, q]), elimD);
       if (!targets.length) continue;
-      for (const [s1, s2, u] of strongLinks(s, link)) {
+      for (const [s1, s2, u] of strongLinks(s, g, link)) {
         if ([s1, s2].includes(p) || [s1, s2].includes(q)) continue;
         let a = -1;
         let b = -1;
-        if (sees(s1, p) && sees(s2, q)) [a, b] = [s1, s2];
-        else if (sees(s1, q) && sees(s2, p)) [a, b] = [s2, s1];
+        if (sees(g, s1, p) && sees(g, s2, q)) [a, b] = [s1, s2];
+        else if (sees(g, s1, q) && sees(g, s2, p)) [a, b] = [s2, s1];
         if (a < 0) continue;
+        const [L, E] = [sym(g, link), sym(g, elimD)];
         return step('wWing', {
           eliminations: targets,
           pattern: [p, q, a, b],
@@ -635,10 +662,10 @@ function wWing(s: State): Step | null {
           ],
           units: [u],
           explanation:
-            `W-Wing: ${cellName(p)} and ${cellName(q)} both contain only ${x}/${y}. ` +
-            `In ${unitName(u)}, ${link} must be in ${cellName(a)} or ${cellName(b)}; ${cellName(a)} sees ${cellName(p)} and ${cellName(b)} sees ${cellName(q)}. ` +
-            `So ${cellName(p)} and ${cellName(q)} can't both be ${link} — at least one of them is ${elimD}. ` +
-            `Remove ${elimD} from cells that see both: ${cellList(targets.map((e) => e.cell))}.`,
+            `W-Wing: ${cn(g, p)} and ${cn(g, q)} both contain only ${sym(g, x)}/${sym(g, y)}. ` +
+            `In ${un(g, u)}, ${L} must be in ${cn(g, a)} or ${cn(g, b)}; ${cn(g, a)} sees ${cn(g, p)} and ${cn(g, b)} sees ${cn(g, q)}. ` +
+            `So ${cn(g, p)} and ${cn(g, q)} can't both be ${L} — at least one of them is ${E}. ` +
+            `Remove ${E} from cells that see both: ${cl(g, targets.map((e) => e.cell))}.`,
         });
       }
     }
@@ -648,32 +675,58 @@ function wWing(s: State): Step | null {
 
 // ---------- uniqueness ----------
 
-function uniqueRectangle(s: State): Step | null {
-  for (const [r1, r2] of combinations([...Array(9).keys()], 2)) {
-    for (const [c1, c2] of combinations([...Array(9).keys()], 2)) {
-      const cells = [r1 * 9 + c1, r1 * 9 + c2, r2 * 9 + c1, r2 * 9 + c2];
-      if (uniq(cells.map(boxOf)).length !== 2) continue;
-      if (!cells.every((i) => empty(s, i))) continue;
-      const bivals = cells.filter((i) => popcount(s.cands[i]) === 2);
-      if (bivals.length !== 3) continue;
-      const m = s.cands[bivals[0]];
-      if (!bivals.every((i) => s.cands[i] === m)) continue;
-      const fourth = cells.find((i) => !bivals.includes(i))!;
-      if ((s.cands[fourth] & m) !== m) continue;
-      const [a, b] = digitsOf(m);
-      const elims = [a, b].map((digit) => ({ cell: fourth, digit }));
-      return step('uniqueRectangle', {
-        eliminations: elims,
-        pattern: cells,
-        keys: bivals.flatMap((cell) => [
-          { cell, digit: a },
-          { cell, digit: b },
-        ]),
-        explanation:
-          `Unique Rectangle: ${cellList(bivals)} all contain only ${a}/${b}, and with ${cellName(fourth)} they form a rectangle across two boxes. ` +
-          `If ${cellName(fourth)} were also reduced to ${a}/${b}, the ${a}s and ${b}s could be swapped around the rectangle, giving two solutions. ` +
-          `A proper puzzle has exactly one, so ${cellName(fourth)} can't be ${a} or ${b}: remove both.`,
-      });
+/**
+ * Four cells in two rows and two columns form a "deadly pattern" only if every
+ * unit touching them contains exactly two of them, side by side (same row or
+ * same column of the rectangle). Then swapping a/b keeps every unit valid.
+ */
+function isDeadlyShape(g: Geometry, cells: number[]): boolean {
+  const [tl, tr, bl, br] = cells;
+  const edges = [
+    [tl, tr],
+    [bl, br],
+    [tl, bl],
+    [tr, br],
+  ];
+  const touched = new Set(cells.flatMap((c) => g.cellUnits[c]));
+  for (const u of touched) {
+    const inU = cells.filter((c) => g.cellUnits[c].includes(u));
+    if (inU.length !== 2) return false;
+    if (!edges.some(([a, b]) => inU.includes(a) && inU.includes(b))) return false;
+  }
+  return true;
+}
+
+function uniqueRectangle(s: State, g: Geometry = CLASSIC): Step | null {
+  for (const grp of g.lineGroups) {
+    const n = grp.rows.length;
+    const at = (r: number, c: number) => g.units[grp.rows[r]].find((x) => grp.colIndex.get(x) === c)!;
+    for (const [r1, r2] of combinations([...Array(n).keys()], 2)) {
+      for (const [c1, c2] of combinations([...Array(n).keys()], 2)) {
+        const cells = [at(r1, c1), at(r1, c2), at(r2, c1), at(r2, c2)];
+        if (!cells.every((i) => empty(s, i))) continue;
+        const bivals = cells.filter((i) => popcount(s.cands[i]) === 2);
+        if (bivals.length !== 3) continue;
+        const m = s.cands[bivals[0]];
+        if (!bivals.every((i) => s.cands[i] === m)) continue;
+        const fourth = cells.find((i) => !bivals.includes(i))!;
+        if ((s.cands[fourth] & m) !== m) continue;
+        if (!isDeadlyShape(g, cells)) continue;
+        const [a, b] = digitsOf(m, g);
+        const [A, B] = [sym(g, a), sym(g, b)];
+        return step('uniqueRectangle', {
+          eliminations: [a, b].map((digit) => ({ cell: fourth, digit })),
+          pattern: cells,
+          keys: bivals.flatMap((cell) => [
+            { cell, digit: a },
+            { cell, digit: b },
+          ]),
+          explanation:
+            `Unique Rectangle: ${cl(g, bivals)} all contain only ${A}/${B}, and with ${cn(g, fourth)} they form a rectangle across two boxes. ` +
+            `If ${cn(g, fourth)} were also reduced to ${A}/${B}, the ${A}s and ${B}s could be swapped around the rectangle, giving two solutions. ` +
+            `A proper puzzle has exactly one, so ${cn(g, fourth)} can't be ${A} or ${B}: remove both.`,
+        });
+      }
     }
   }
   return null;
@@ -692,22 +745,17 @@ interface ChainHit {
   elims: CellDigit[];
 }
 
-/**
- * X-Chain search on digit d. State "cell OFF" -> (strong link) -> "partner ON";
- * "cell ON" -> (weak link) -> "peer OFF". Reaching some end ON from start OFF
- * proves start or end is d.
- */
-function searchXChain(s: State, d: number, maxLinks: number): ChainHit | null {
-  const nodes = withDigit(s, [...Array(81).keys()], d);
+function searchXChain(s: State, g: Geometry, d: number, maxLinks: number): ChainHit | null {
+  const nodes = withDigit(s, [...Array(g.cellCount).keys()], d);
   if (nodes.length < 4) return null;
   const strong = new Map<number, number[]>();
-  for (const [a, b] of strongLinks(s, d)) {
+  for (const [a, b] of strongLinks(s, g, d)) {
     strong.set(a, uniq([...(strong.get(a) ?? []), b]));
     strong.set(b, uniq([...(strong.get(b) ?? []), a]));
   }
+  const nodeSet = new Set(nodes);
   let best: ChainHit | null = null;
   for (const start of strong.keys()) {
-    // key = cell*2 + (on ? 1 : 0)
     const parent = new Map<number, number>();
     const depth = new Map<number, number>();
     const k0 = start * 2;
@@ -720,7 +768,7 @@ function searchXChain(s: State, d: number, maxLinks: number): ChainHit | null {
       const on = (k & 1) === 1;
       const dep = depth.get(k)!;
       if (on && cell !== start && dep >= 3) {
-        const elims = elimDigit(s, commonPeers([start, cell]), d);
+        const elims = elimDigit(s, commonPeers(g, [start, cell]), d);
         if (elims.length && (!best || dep < best.path.length - 1)) {
           const path: number[] = [];
           for (let x = k; x !== -1; x = parent.get(x)!) path.unshift(x >> 1);
@@ -728,7 +776,7 @@ function searchXChain(s: State, d: number, maxLinks: number): ChainHit | null {
         }
       }
       if (dep >= maxLinks || (best && dep >= best.path.length - 1)) continue;
-      const next = on ? nodes.filter((n) => n !== cell && sees(cell, n)) : strong.get(cell) ?? [];
+      const next = on ? g.peers[cell].filter((n) => nodeSet.has(n)) : (strong.get(cell) ?? []);
       for (const n of next) {
         const nk = n * 2 + (on ? 0 : 1);
         if (parent.has(nk)) continue;
@@ -742,11 +790,12 @@ function searchXChain(s: State, d: number, maxLinks: number): ChainHit | null {
 }
 
 function xChainTechnique(id: TechniqueId, maxLinks: number) {
-  return (s: State): Step | null => {
-    for (let d = 1; d <= 9; d++) {
-      const hit = searchXChain(s, d, maxLinks);
+  return (s: State, g: Geometry = CLASSIC): Step | null => {
+    for (let d = 1; d <= g.n; d++) {
+      const hit = searchXChain(s, g, d, maxLinks);
       if (!hit) continue;
       const { path, start, end, elims } = hit;
+      const D = sym(g, d);
       const keys = path.map((cell, idx) => ({ cell, digit: d, color: (idx % 2 === 0 ? 1 : 0) as 0 | 1 }));
       const label = id === 'turbotFish' ? 'Turbot Fish' : 'X-Chain';
       return step(id, {
@@ -754,11 +803,11 @@ function xChainTechnique(id: TechniqueId, maxLinks: number) {
         pattern: uniq(path),
         keys,
         explanation:
-          `${label} on ${d}: ${path.map(cellName).join(' → ')}. ` +
-          `The links alternate between "strong" (the two cells are the only places for ${d} in some row, column or box, so one of them must be ${d}) ` +
-          `and "weak" (the two cells see each other, so they can't both be ${d}). ` +
-          `If ${cellName(start)} isn't ${d}, the chain forces ${cellName(end)} to be ${d}. ` +
-          `So at least one end is ${d}, and any cell seeing both ends can't be: remove ${d} from ${cellList(elims.map((e) => e.cell))}.`,
+          `${label} on ${D}: ${path.map((c) => cn(g, c)).join(' → ')}. ` +
+          `The links alternate between "strong" (the two cells are the only places for ${D} in some unit, so one of them must be ${D}) ` +
+          `and "weak" (the two cells see each other, so they can't both be ${D}). ` +
+          `If ${cn(g, start)} isn't ${D}, the chain forces ${cn(g, end)} to be ${D}. ` +
+          `So at least one end is ${D}, and any cell seeing both ends can't be: remove ${D} from ${cl(g, elims.map((e) => e.cell))}.`,
       });
     }
     return null;
@@ -767,35 +816,35 @@ function xChainTechnique(id: TechniqueId, maxLinks: number) {
 
 const MAX_XY_CHAIN_CELLS = 12;
 
-/** XY-Chain over bivalue cells: if the first cell isn't z, the last is forced to z. */
-function xyChain(s: State): Step | null {
-  const bv = bivalueCells(s);
+function xyChain(s: State, g: Geometry = CLASSIC): Step | null {
+  const bv = bivalueCells(s, g);
+  const bvSet = new Set(bv);
+  const K = 32; // key = cell*K + digit
   let best: { path: number[]; z: number; elims: CellDigit[] } | null = null;
   for (const start of bv) {
-    for (const z of digitsOf(s.cands[start])) {
-      // node key = cell*10 + digit that is forced ON in that cell
-      const firstOn = firstDigit(s.cands[start] & ~bit(z));
-      const k0 = start * 10 + firstOn;
+    for (const z of digitsOf(s.cands[start], g)) {
+      const firstOn = firstDigit(s.cands[start] & ~bit(z), g);
+      const k0 = start * K + firstOn;
       const parent = new Map<number, number>([[k0, -1]]);
       const depth = new Map<number, number>([[k0, 1]]);
       const queue = [k0];
       while (queue.length) {
         const k = queue.shift()!;
-        const cell = Math.floor(k / 10);
-        const on = k % 10;
+        const cell = Math.floor(k / K);
+        const on = k % K;
         const dep = depth.get(k)!;
         if (on === z && cell !== start && dep >= 3) {
-          const elims = elimDigit(s, commonPeers([start, cell]), z);
+          const elims = elimDigit(s, commonPeers(g, [start, cell]), z);
           if (elims.length && (!best || dep < best.path.length)) {
             const path: number[] = [];
-            for (let x = k; x !== -1; x = parent.get(x)!) path.unshift(Math.floor(x / 10));
+            for (let x = k; x !== -1; x = parent.get(x)!) path.unshift(Math.floor(x / K));
             best = { path, z, elims };
           }
         }
         if (dep >= MAX_XY_CHAIN_CELLS || (best && dep >= best.path.length)) continue;
-        for (const n of bv) {
-          if (n === cell || !sees(cell, n) || !has(s.cands[n], on)) continue;
-          const nk = n * 10 + firstDigit(s.cands[n] & ~bit(on));
+        for (const n of g.peers[cell]) {
+          if (!bvSet.has(n) || !has(s.cands[n], on)) continue;
+          const nk = n * K + firstDigit(s.cands[n] & ~bit(on), g);
           if (parent.has(nk)) continue;
           parent.set(nk, k);
           depth.set(nk, dep + 1);
@@ -810,21 +859,22 @@ function xyChain(s: State): Step | null {
   const end = path[path.length - 1];
   const keys: KeyCandidate[] = [];
   path.forEach((cell, idx) => {
-    for (const digit of digitsOf(s.cands[cell])) {
+    for (const digit of digitsOf(s.cands[cell], g)) {
       const isZEnd = (idx === 0 || idx === path.length - 1) && digit === z;
       keys.push({ cell, digit, color: isZEnd ? 0 : 1 });
     }
   });
-  const desc = path.map((c) => `${cellName(c)} (${digitsOf(s.cands[c]).join('/')})`).join(' → ');
+  const Z = sym(g, z);
+  const desc = path.map((c) => `${cn(g, c)} (${digitsOf(s.cands[c], g).map((d) => sym(g, d)).join('/')})`).join(' → ');
   return step('xyChain', {
     eliminations: elims,
     pattern: uniq(path),
     keys,
     explanation:
       `XY-Chain: ${desc}. Each cell has exactly two candidates and sees the next one. ` +
-      `If ${cellName(start)} isn't ${z}, it must be its other digit, which forces the next cell, and so on down the chain until ${cellName(end)} is forced to be ${z}. ` +
-      `So either ${cellName(start)} or ${cellName(end)} is ${z}; any cell seeing both can't be ${z}: ` +
-      `remove ${z} from ${cellList(elims.map((e) => e.cell))}.`,
+      `If ${cn(g, start)} isn't ${Z}, it must be its other digit, which forces the next cell, and so on down the chain until ${cn(g, end)} is forced to be ${Z}. ` +
+      `So either ${cn(g, start)} or ${cn(g, end)} is ${Z}; any cell seeing both can't be ${Z}: ` +
+      `remove ${Z} from ${cl(g, elims.map((e) => e.cell))}.`,
   });
 }
 
@@ -835,8 +885,8 @@ export const TECHNIQUES: Technique[] = [
   { id: 'nakedSingle', name: 'Naked Single', tier: 0, find: nakedSingle },
   { id: 'hiddenSingle', name: 'Hidden Single', tier: 0, find: hiddenSingle },
   // tier 1: Medium
-  { id: 'pointing', name: 'Pointing', tier: 1, find: pointing },
-  { id: 'claiming', name: 'Box/Line Reduction', tier: 1, find: claiming },
+  { id: 'pointing', name: 'Pointing', tier: 1, find: lockedCandidates('pointing') },
+  { id: 'claiming', name: 'Box/Line Reduction', tier: 1, find: lockedCandidates('claiming') },
   { id: 'nakedPair', name: 'Naked Pair', tier: 1, find: nakedSubset(2, 'nakedPair') },
   { id: 'hiddenPair', name: 'Hidden Pair', tier: 1, find: hiddenSubset(2, 'hiddenPair') },
   // tier 2: Hard
@@ -864,10 +914,17 @@ export const TECHNIQUES: Technique[] = [
 export const TECHNIQUE_BY_ID: Record<string, Technique> = Object.fromEntries(TECHNIQUES.map((t) => [t.id, t]));
 TECHNIQUE_BY_ID.cleanup = { id: 'cleanup', name: 'Candidate Clean-up', tier: 0, find: () => null };
 
-export function findStep(s: State, maxTier = 4): Step | null {
+export interface FindOptions {
+  maxTier?: number;
+  /** Skip uniqueness-based techniques (when using logic to prove uniqueness). */
+  noUniqueness?: boolean;
+}
+
+export function findStep(s: State, maxTier = 4, g: Geometry = CLASSIC, opts: FindOptions = {}): Step | null {
   for (const t of TECHNIQUES) {
     if (t.tier > maxTier) break;
-    const st = t.find(s);
+    if (opts.noUniqueness && t.id === 'uniqueRectangle') continue;
+    const st = t.find(s, g);
     if (st) return st;
   }
   return null;

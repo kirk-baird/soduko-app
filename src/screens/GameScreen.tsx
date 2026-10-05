@@ -1,17 +1,22 @@
+// Game screen for every digit puzzle: classic, jigsaw, windoku, 16×16,
+// samurai, calcudoku and kakuro. Everything puzzle-specific (rules, layout,
+// hints, auto-finish) comes from the game type's adapter.
+
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { AppState, Modal, Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Board, HintMarks } from '../components/Board';
+import { Board, HintMarks, boardPixelSize } from '../components/Board';
 import { NumberPad, ToolButton } from '../components/Controls';
-import { Dialog } from '../components/Dialog';
+import { Clock, CompletionDialog, GameHeader, RulesSheet } from '../components/GameChrome';
 import { HintPanel } from '../components/HintPanel';
-import { Hint, findHint } from '../engine/hint';
-import { DIFFICULTY_LABEL, Difficulty, singlesFinish } from '../engine/logic';
-import { GameState, firstMistakeIndex, gameReducer, removedCorrectCells, wrongCells } from '../game/gameState';
+import { Difficulty, PuzzleHint } from '../engine/common';
+import { GameState, firstMistakeIndex, makeGameReducer, removedCorrectCells, wrongCells } from '../game/gameState';
+import { GAMES, SudokuPayload } from '../games/registry';
+import { GameType } from '../games/types';
 import { useSettings } from '../settings';
-import { formatTime, recordCompletion } from '../stats';
+import { recordCompletion } from '../stats';
 import { remove, saveJSON } from '../storage';
 import { useTheme } from '../theme';
 import { SettingsScreen } from './SettingsScreen';
@@ -19,55 +24,41 @@ import { SettingsScreen } from './SettingsScreen';
 interface Props {
   initial: GameState;
   onExit: () => void;
-  onNewGame: (d: Difficulty) => void;
+  onNewGame: (type: GameType, d: Difficulty) => void;
 }
 
-/** Pausable stopwatch held in a ref so the board doesn't re-render every second. */
-class Clock {
-  acc: number;
-  since: number | null = null;
-  constructor(ms: number) {
-    this.acc = ms;
-  }
-  start() {
-    if (this.since == null) this.since = Date.now();
-  }
-  stop() {
-    if (this.since != null) {
-      this.acc += Date.now() - this.since;
-      this.since = null;
-    }
-  }
-  get ms() {
-    return this.acc + (this.since != null ? Date.now() - this.since : 0);
-  }
+/** Games saved before game types existed carry no type or payload. */
+export function resolveGame(g: GameState): GameState {
+  if (g.type && g.payload) return g;
+  const payload: SudokuPayload = { variant: 'classic', givens: g.givens, solution: g.solution };
+  return { ...g, type: 'classic', payload };
 }
 
-function TimerText({ clock, color }: { clock: Clock; color: string }) {
-  const [, force] = useState(0);
-  useEffect(() => {
-    const id = setInterval(() => force((x) => x + 1), 500);
-    return () => clearInterval(id);
-  }, []);
-  return <Text style={[styles.timer, { color }]}>{formatTime(clock.ms)}</Text>;
-}
+const MIN_CELL = 30; // below this, offer zoom
+const ZOOM_CELL = 40;
 
 export function GameScreen({ initial, onExit, onNewGame }: Props) {
   const t = useTheme();
   const { settings } = useSettings();
   const { width, height } = useWindowDimensions();
-  const [game, dispatch] = useReducer(gameReducer, initial);
+  const type = initial.type ?? 'classic';
+  const def = GAMES[type];
+  const adapter = useMemo(() => def.adapter!(initial.payload), [def, initial.payload]);
+  const reducer = useMemo(() => makeGameReducer(adapter.rules), [adapter]);
+  const [game, dispatch] = useReducer(reducer, initial);
   const [selected, setSelected] = useState<number | null>(null);
+  const [lastDigit, setLastDigit] = useState(0);
   const [pencilMode, setPencilMode] = useState(false);
-  const [hint, setHint] = useState<Hint | null>(null);
+  const [hint, setHint] = useState<PuzzleHint | null>(null);
   const [paused, setPaused] = useState(false);
   const [appActive, setAppActive] = useState(true);
   const [autoFilling, setAutoFilling] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [zoomed, setZoomed] = useState(false);
   const [result, setResult] = useState<{ ms: number; isBest: boolean } | null>(null);
   const [clock] = useState(() => new Clock(initial.elapsedMs));
   const gameRef = useRef(game);
-  // declared before the save effects so they see the latest game
   useEffect(() => {
     gameRef.current = game;
   }, [game]);
@@ -86,7 +77,7 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
   );
 
   // ---- clock ----
-  const running = !paused && !settingsOpen && appActive && !game.completed;
+  const running = !paused && !settingsOpen && !helpOpen && appActive && !game.completed;
   useEffect(() => {
     if (running) clock.start();
     else clock.stop();
@@ -96,8 +87,8 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
   const save = useCallback(() => {
     const g = gameRef.current;
     if (g.completed) return;
-    saveJSON('game', { ...g, elapsedMs: clock.ms });
-  }, [clock]);
+    saveJSON(`game.${type}`, { ...g, elapsedMs: clock.ms, savedAt: Date.now() });
+  }, [clock, type]);
 
   useEffect(() => {
     const id = setTimeout(save, 400);
@@ -127,29 +118,27 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
     recorded.current = true;
     clock.stop();
     const ms = clock.ms;
-    setSelected(null);
-    setHint(null);
     buzz('success');
-    remove('game');
-    recordCompletion(game.difficulty, ms).then(({ isBest }) => setResult({ ms, isBest }));
-  }, [game.completed, game.difficulty, clock, buzz]);
+    remove(`game.${type}`);
+    recordCompletion(type, game.difficulty, ms, game.hintsUsed).then(({ isBest }) => setResult({ ms, isBest }));
+  }, [game.completed, game.difficulty, game.hintsUsed, clock, buzz, type]);
 
   // ---- derived ----
   const wrong = useMemo(() => wrongCells(game), [game]);
   const mistakeIdx = useMemo(() => firstMistakeIndex(game), [game]);
   const counts = useMemo(() => {
-    const c = new Array(10).fill(0);
+    const c = new Array(adapter.rules.maxDigit + 1).fill(0);
     game.values.forEach((v, i) => {
       if (v && v === game.solution[i]) c[v]++;
     });
     return c;
-  }, [game.values, game.solution]);
+  }, [game.values, game.solution, adapter]);
 
   const finish = useMemo(() => {
     if (game.completed || wrong.length) return null;
-    const f = singlesFinish(game.values);
+    const f = adapter.finish(game.values);
     return f && f.length ? f : null;
-  }, [game.values, game.completed, wrong.length]);
+  }, [game.values, game.completed, wrong.length, adapter]);
 
   const hintMarks: HintMarks | null = useMemo(() => {
     if (!hint) return null;
@@ -162,12 +151,14 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
       case 'reveal':
         return {
           step: {
-            technique: 'nakedSingle',
+            technique: 'reveal',
+            name: 'Reveal',
+            tier: 0,
             placements: [{ cell: hint.cell, digit: hint.digit }],
             eliminations: [],
             pattern: [hint.cell],
             keys: [],
-            units: [],
+            unitCells: [],
             explanation: hint.message,
           },
         };
@@ -181,20 +172,24 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
 
   const onPressCell = useCallback(
     (i: number) => {
-      if (paused || autoFilling) return;
+      if (paused || autoFilling || !adapter.rules.playable[i]) return;
       setHint(null);
+      const v = gameRef.current.values[i];
+      if (v) setLastDigit(v);
+      else if (i === selected) setLastDigit(0); // tap the selected empty cell again to clear
       setSelected(i);
     },
-    [paused, autoFilling],
+    [paused, autoFilling, selected, adapter],
   );
 
   const input = (d: number, asPencil: boolean) => {
     if (busy || selected == null) return;
     setHint(null);
     const g = gameRef.current;
-    if (g.givens[selected]) return;
+    if (g.givens[selected] || !adapter.rules.playable[selected]) return;
     if (asPencil && g.values[selected]) return;
     dispatch({ type: 'input', cell: selected, digit: d, pencil: asPencil });
+    if (!asPencil) setLastDigit(d);
     if (!asPencil && g.values[selected] !== d && d !== g.solution[selected] && settings.errorDetection) buzz('error');
     else buzz('tap');
   };
@@ -222,7 +217,7 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
 
   const showHint = () => {
     if (busy) return;
-    const h = findHint(game.values, game.pencil, game.solution, removedCorrectCells(game));
+    const h = adapter.hint(game.values, game.pencil, removedCorrectCells(game));
     setHint(h);
     setSelected(null);
     if (h.kind !== 'solved') dispatch({ type: 'hintShown' });
@@ -231,20 +226,7 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
   const applyHint = () => {
     if (!hint) return;
     if (hint.kind === 'step') dispatch({ type: 'applyStep', step: hint.step });
-    if (hint.kind === 'reveal') {
-      dispatch({
-        type: 'applyStep',
-        step: {
-          technique: 'nakedSingle',
-          placements: [{ cell: hint.cell, digit: hint.digit }],
-          eliminations: [],
-          pattern: [],
-          keys: [],
-          units: [],
-          explanation: '',
-        },
-      });
-    }
+    if (hint.kind === 'reveal') dispatch({ type: 'applyStep', step: { placements: [{ cell: hint.cell, digit: hint.digit }], eliminations: [] } });
     setHint(null);
     buzz('tap');
   };
@@ -255,6 +237,7 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
     setSelected(null);
     setAutoFilling(true);
     const queue = finish.slice();
+    const delay = Math.max(15, Math.min(60, 3000 / queue.length));
     const id = setInterval(() => {
       const p = queue.shift();
       if (!p) {
@@ -263,53 +246,67 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
         return;
       }
       dispatch({ type: 'autoPlace', placement: p });
-    }, 60);
+    }, delay);
   };
 
   // ---- layout ----
-  const boardWidth = Math.min(width - 16, height * 0.52, 560);
+  const { layout } = adapter;
+  const availW = Math.min(width - 16, 640);
+  const availH = height * 0.52;
+  const fitCell = Math.floor(Math.min((availW - 1) / layout.gridCols - 1, (availH - 1) / layout.gridRows - 1));
+  const canZoom = fitCell < MIN_CELL;
+  const cellSize = canZoom && zoomed ? ZOOM_CELL : fitCell;
+  const px = boardPixelSize(layout, cellSize);
+  const highlightDigit = (selected != null && game.values[selected]) || lastDigit;
+
+  const board = (
+    <Board
+      layout={layout}
+      cellSize={cellSize}
+      maxDigit={adapter.rules.maxDigit}
+      givens={game.givens}
+      values={game.values}
+      pencil={game.pencil}
+      solution={game.solution}
+      playable={adapter.rules.playable}
+      peers={adapter.rules.peers}
+      selected={selected}
+      highlightDigit={highlightDigit}
+      errorDetection={settings.errorDetection}
+      highlightCandidates={settings.highlightCandidates}
+      hint={hintMarks}
+      hidden={paused}
+      theme={t}
+      onPressCell={onPressCell}
+    />
+  );
 
   return (
     <SafeAreaView style={[styles.root, { backgroundColor: t.bg }]} edges={['top', 'bottom', 'left', 'right']}>
-      <View style={styles.header}>
-        <Pressable onPress={onExit} hitSlop={12} accessibilityLabel="Back">
-          <MaterialCommunityIcons name="chevron-left" size={30} color={t.text} />
-        </Pressable>
-        <View style={{ flex: 1 }}>
-          <Text style={[styles.level, { color: t.text }]}>{DIFFICULTY_LABEL[game.difficulty]}</Text>
-          <Text style={[styles.meta, { color: t.textMuted }]}>
-            {settings.errorDetection ? `Mistakes ${game.mistakes}` : ' '}
-            {game.hintsUsed ? `${settings.errorDetection ? '  ·  ' : ''}Hints ${game.hintsUsed}` : ''}
-          </Text>
-        </View>
-        <Pressable
-          onPress={() => !game.completed && setPaused((p) => !p)}
-          style={[styles.timerBox, { backgroundColor: t.surface, borderColor: t.border }]}
-          accessibilityLabel={paused ? 'Resume' : 'Pause'}
-        >
-          <TimerText clock={clock} color={t.text} />
-          <MaterialCommunityIcons name={paused ? 'play' : 'pause'} size={18} color={t.textMuted} />
-        </Pressable>
-        <Pressable onPress={() => setSettingsOpen(true)} hitSlop={10} accessibilityLabel="Settings" style={{ marginLeft: 4 }}>
-          <MaterialCommunityIcons name="cog-outline" size={24} color={t.text} />
-        </Pressable>
-      </View>
+      <GameHeader
+        def={def}
+        difficulty={game.difficulty}
+        mistakes={settings.errorDetection ? game.mistakes : null}
+        hintsUsed={game.hintsUsed}
+        clock={clock}
+        paused={paused}
+        onBack={onExit}
+        onTogglePause={() => !game.completed && setPaused((p) => !p)}
+        onHelp={() => setHelpOpen(true)}
+        onSettings={() => setSettingsOpen(true)}
+        theme={t}
+      />
 
       <View style={styles.boardWrap}>
-        <Board
-          width={boardWidth}
-          givens={game.givens}
-          values={game.values}
-          pencil={game.pencil}
-          solution={game.solution}
-          selected={selected}
-          errorDetection={settings.errorDetection}
-          highlightCandidates={settings.highlightCandidates}
-          hint={hintMarks}
-          hidden={paused}
-          theme={t}
-          onPressCell={onPressCell}
-        />
+        {canZoom && zoomed ? (
+          <ScrollView style={{ maxHeight: height * 0.6, width: availW }} nestedScrollEnabled>
+            <ScrollView horizontal nestedScrollEnabled contentContainerStyle={{ width: px.width }}>
+              {board}
+            </ScrollView>
+          </ScrollView>
+        ) : (
+          board
+        )}
         {paused ? (
           <Pressable style={styles.pausedOverlay} onPress={() => setPaused(false)}>
             <MaterialCommunityIcons name="play-circle-outline" size={64} color={t.accent} />
@@ -348,12 +345,23 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
           badge={pencilMode ? 'ON' : 'OFF'}
           theme={t}
         />
+        {canZoom ? (
+          <ToolButton
+            icon={zoomed ? 'magnify-minus-outline' : 'magnify-plus-outline'}
+            label={zoomed ? 'Fit' : 'Zoom'}
+            onPress={() => setZoomed((z) => !z)}
+            theme={t}
+          />
+        ) : null}
         <ToolButton icon="lightbulb-on-outline" label="Hint" onPress={showHint} disabled={busy} theme={t} />
       </View>
 
       <View style={styles.padWrap}>
         <NumberPad
+          maxDigit={adapter.rules.maxDigit}
+          symbols={layout.symbols}
           counts={counts}
+          totals={adapter.digitTotals}
           pencilMode={pencilMode}
           onDigit={(d) => input(d, pencilMode)}
           onLongDigit={(d) => input(d, !pencilMode)}
@@ -365,64 +373,30 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
       <Modal visible={settingsOpen} animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
         <SettingsScreen onBack={() => setSettingsOpen(false)} />
       </Modal>
+      <RulesSheet visible={helpOpen} def={def} onClose={() => setHelpOpen(false)} theme={t} />
 
-      <Dialog
+      <CompletionDialog
         visible={!!result}
-        title={result?.isBest ? 'New best time!' : 'Solved!'}
+        isBest={!!result?.isBest}
+        difficulty={game.difficulty}
+        ms={result?.ms ?? 0}
+        mistakes={game.mistakes}
+        hintsUsed={game.hintsUsed}
+        onHome={onExit}
+        onNewGame={() => onNewGame(type, game.difficulty)}
         theme={t}
-        buttons={[
-          { label: 'Home', onPress: onExit },
-          { label: 'New game', onPress: () => onNewGame(game.difficulty), primary: true },
-        ]}
-        onRequestClose={onExit}
-      >
-        <View style={{ gap: 6 }}>
-          <Row label="Difficulty" value={DIFFICULTY_LABEL[game.difficulty]} color={t.text} muted={t.textMuted} />
-          <Row label="Time" value={formatTime(result?.ms ?? 0)} color={t.text} muted={t.textMuted} />
-          <Row label="Mistakes" value={String(game.mistakes)} color={t.text} muted={t.textMuted} />
-          <Row label="Hints" value={String(game.hintsUsed)} color={t.text} muted={t.textMuted} />
-        </View>
-      </Dialog>
+      />
     </SafeAreaView>
-  );
-}
-
-function Row({ label, value, color, muted }: { label: string; value: string; color: string; muted: string }) {
-  return (
-    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-      <Text style={{ color: muted, fontSize: 15 }}>{label}</Text>
-      <Text style={{ color, fontSize: 15, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{value}</Text>
-    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
-  header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, paddingVertical: 6, gap: 6 },
-  level: { fontSize: 18, fontWeight: '700' },
-  meta: { fontSize: 12, marginTop: 1 },
-  timerBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderWidth: 1,
-    borderRadius: 18,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  timer: { fontSize: 16, fontWeight: '600', fontVariant: ['tabular-nums'] },
   boardWrap: { alignItems: 'center', marginTop: 4 },
   pausedOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: 8 },
   pausedText: { fontSize: 16, fontWeight: '600' },
   middle: { flex: 1, justifyContent: 'center', paddingHorizontal: 10, paddingVertical: 6, minHeight: 60 },
-  finish: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    borderRadius: 14,
-    paddingVertical: 12,
-  },
+  finish: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, paddingVertical: 12 },
   finishText: { fontSize: 15, fontWeight: '700' },
   tools: { flexDirection: 'row', paddingHorizontal: 8 },
   padWrap: { paddingHorizontal: 8, paddingTop: 6, paddingBottom: 10 },

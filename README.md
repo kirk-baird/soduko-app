@@ -1,9 +1,10 @@
 # Sudokou
 
-A free, ad-free sudoku app for Android (and iOS) built with Expo / React Native.
-Difficulty is graded by the solving techniques a puzzle needs, hints explain the
-next deduction from *your* pencil marks, and the game can auto-finish once only
-singles remain.
+A free, ad-free logic-puzzle app for Android (and iOS) built with Expo / React
+Native: classic sudoku plus Jigsaw, Windoku, 16×16 and Samurai sudoku,
+Calcudoku, Kakuro and Tents. Difficulty is graded by the solving techniques a
+puzzle needs, hints explain the next deduction from *your* pencil marks, and
+games can auto-finish once only the simplest steps remain.
 
 See [DESIGN.md](DESIGN.md) for how it works.
 
@@ -41,24 +42,28 @@ When it finishes, open the download link on the phone and install the APK.
 npm test            # engine + game-state tests (vitest)
 npm run typecheck   # tsc
 npm run web         # run in a browser
-npm run build-bank  # regenerate the bundled puzzle bank (src/data/puzzleBank.json)
-npm run survey      # stats on which technique each random puzzle needs
+npm run build-bank  # regenerate the classic puzzle bank (src/data/puzzleBank.json)
+npm run survey      # stats on which technique each random classic puzzle needs
+npx tsx scripts/build-variant-bank.ts <windoku|jigsaw|sixteen|samurai> [perLevel] [minutes]
+npx tsx scripts/build-calcudoku-bank.ts | build-kakuro-bank.ts | build-tents-bank.ts
 ```
 
 ## Layout
 
 ```
-App.tsx                     screen switching, new-game flow, Android back button
-src/engine/                 pure TypeScript, no React
-  grid.ts                   geometry, bitmask candidates, naming (R3C5, box 4…)
-  solver.ts                 backtracking solver (uniqueness + solution)
-  techniques.ts             human techniques; each returns a Step with an explanation
-  logic.ts                  difficulty grading, singles-only autocomplete check
-  hint.ts                   hint from the player's own pencil marks
-  generator.ts              random symmetric minimal puzzles
-src/game/gameState.ts       reducer: input, pencil, undo, rewind-to-first-mistake, hints
-src/game/puzzleSource.ts    bundled bank first, on-device generation afterwards
-src/components/             Board, Cell, NumberPad, toolbar, HintPanel, Dialog
-src/screens/                Home, Game, Settings
-src/data/puzzleBank.json    250 graded puzzles per difficulty
+App.tsx                       screens: home → game type → game; Android back button
+src/games/registry.ts         every game type: name, rules text, levels, bank, generator, adapters
+src/engine/common.ts          shared types (PuzzleStep, PuzzleHint, DigitRules, Difficulty)
+src/engine/sudoku/geometry.ts cells and units for classic, windoku, jigsaw, 16×16, samurai
+src/engine/techniques.ts      human techniques for all sudoku variants (geometry-aware)
+src/engine/logic.ts, hint.ts, solver.ts, generator.ts   grading, hints, solver, generation
+src/engine/calcudoku/         Calcudoku solver, generator, techniques, hints
+src/engine/kakuro/            Kakuro solver, generator, techniques, hints
+src/engine/tents/             Tents solver, generator, rules, hints
+src/game/gameState.ts         digit-puzzle reducer (bound to a puzzle's rules)
+src/game/tentsState.ts        Tents reducer
+src/game/puzzleSource.ts      bundled bank first, on-device generation afterwards
+src/components/               Board (any digit puzzle), TentsBoard, Cell, controls, hint panel
+src/screens/                  Home, Type (levels + how to play), Game, Tents, Settings
+src/data/*Bank.json           pre-generated graded puzzles per game type
 ```

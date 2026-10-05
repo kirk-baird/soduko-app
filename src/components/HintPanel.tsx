@@ -1,14 +1,13 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Hint } from '../engine/hint';
-import { TECHNIQUE_BY_ID } from '../engine/techniques';
+import { PuzzleHint } from '../engine/common';
 import { Theme } from '../theme';
 
 const TIER_LABEL = ['Basic', 'Medium', 'Hard', 'Extra Hard', 'Extreme'];
 
 export function HintPanel(props: {
-  hint: Hint;
+  hint: PuzzleHint;
   canRewind: boolean;
   onApply: () => void;
   onRewind: () => void;
@@ -24,9 +23,8 @@ export function HintPanel(props: {
 
   switch (hint.kind) {
     case 'step': {
-      const tech = TECHNIQUE_BY_ID[hint.step.technique];
-      title = tech.name;
-      subtitle = TIER_LABEL[tech.tier];
+      title = hint.step.name;
+      subtitle = TIER_LABEL[hint.step.tier] ?? '';
       body = hint.step.explanation;
       applyLabel = hint.step.placements.length ? 'Place it' : 'Apply';
       break;

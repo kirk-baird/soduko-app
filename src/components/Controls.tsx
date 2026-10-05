@@ -38,7 +38,10 @@ export function ToolButton(props: {
 }
 
 export function NumberPad(props: {
-  counts: number[]; // placed count per digit (index 1..9)
+  maxDigit: number;
+  symbols: string; // digit -> glyph
+  counts: number[]; // placed (correct) count per digit (index 1..maxDigit)
+  totals: number[] | null; // expected count per digit; null hides the counters
   pencilMode: boolean;
   onDigit: (d: number) => void;
   onLongDigit: (d: number) => void;
@@ -46,37 +49,48 @@ export function NumberPad(props: {
   theme: Theme;
 }) {
   const t = props.theme;
+  const digits = Array.from({ length: props.maxDigit }, (_, i) => i + 1);
+  const rows = props.maxDigit > 9 ? [digits.slice(0, Math.ceil(digits.length / 2)), digits.slice(Math.ceil(digits.length / 2))] : [digits];
+  const compact = rows.length > 1;
   return (
-    <View style={styles.pad}>
-      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => {
-        const remaining = 9 - props.counts[d];
-        const done = remaining <= 0;
-        return (
-          <Pressable
-            key={d}
-            disabled={props.disabled}
-            onPress={() => props.onDigit(d)}
-            onLongPress={() => props.onLongDigit(d)}
-            delayLongPress={350}
-            style={({ pressed }) => [
-              styles.padKey,
-              { backgroundColor: pressed ? t.surfaceAlt : t.surface, borderColor: t.border },
-            ]}
-            accessibilityLabel={`${props.pencilMode ? 'Pencil ' : ''}${d}`}
-          >
-            <Text
-              style={[
-                styles.padDigit,
-                props.pencilMode && styles.padDigitPencil,
-                { color: done ? t.border : props.pencilMode ? t.textMuted : t.accent },
-              ]}
-            >
-              {d}
-            </Text>
-            <Text style={[styles.padCount, { color: t.textMuted }]}>{done ? ' ' : remaining}</Text>
-          </Pressable>
-        );
-      })}
+    <View style={{ gap: 4 }}>
+      {rows.map((row, ri) => (
+        <View key={ri} style={styles.pad}>
+          {row.map((d) => {
+            const remaining = props.totals ? props.totals[d] - props.counts[d] : null;
+            const done = remaining != null && remaining <= 0;
+            return (
+              <Pressable
+                key={d}
+                disabled={props.disabled}
+                onPress={() => props.onDigit(d)}
+                onLongPress={() => props.onLongDigit(d)}
+                delayLongPress={350}
+                style={({ pressed }) => [
+                  styles.padKey,
+                  compact && styles.padKeyCompact,
+                  { backgroundColor: pressed ? t.surfaceAlt : t.surface, borderColor: t.border },
+                ]}
+                accessibilityLabel={`${props.pencilMode ? 'Pencil ' : ''}${props.symbols[d]}`}
+              >
+                <Text
+                  style={[
+                    styles.padDigit,
+                    compact && styles.padDigitCompact,
+                    props.pencilMode && (compact ? styles.padDigitPencilCompact : styles.padDigitPencil),
+                    { color: done ? t.border : props.pencilMode ? t.textMuted : t.accent },
+                  ]}
+                >
+                  {props.symbols[d]}
+                </Text>
+                {remaining != null ? (
+                  <Text style={[styles.padCount, { color: t.textMuted }]}>{done ? ' ' : remaining}</Text>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </View>
+      ))}
     </View>
   );
 }
@@ -91,4 +105,7 @@ const styles = StyleSheet.create({
   padDigit: { fontSize: 30, fontWeight: '500', lineHeight: 34, fontVariant: ['tabular-nums'] },
   padDigitPencil: { fontSize: 22, lineHeight: 34, fontWeight: '400' },
   padCount: { fontSize: 11, lineHeight: 13 },
+  padKeyCompact: { paddingTop: 3, paddingBottom: 2 },
+  padDigitCompact: { fontSize: 24, lineHeight: 28 },
+  padDigitPencilCompact: { fontSize: 18, lineHeight: 28, fontWeight: '400' },
 });

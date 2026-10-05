@@ -10,7 +10,9 @@
 // not already used by a peer, so players who haven't pencilled everything
 // still get sound hints.
 
-import { Cands, Grid, PEERS, cellList, cellName, computeCandidates, has } from './grid';
+import { Cands, Grid, has } from './grid';
+import { legalCandidates } from './sudoku/core';
+import { CLASSIC, Geometry } from './sudoku/geometry';
 import { CellDigit, State, Step, findStep } from './techniques';
 
 export type Hint =
@@ -20,8 +22,8 @@ export type Hint =
   | { kind: 'solved'; message: string }
   | { kind: 'reveal'; cell: number; digit: number; message: string };
 
-export function effectiveCandidates(values: Grid, pencil: Cands): Cands {
-  const legal = computeCandidates(values);
+export function effectiveCandidates(values: Grid, pencil: Cands, g: Geometry = CLASSIC): Cands {
+  const legal = legalCandidates(g, values);
   return values.map((v, i) => (v ? 0 : pencil[i] ? pencil[i] : legal[i]));
 }
 
@@ -31,7 +33,15 @@ export function effectiveCandidates(values: Grid, pencil: Cands): Cands {
  *   digit are treated as unfinished (e.g. marks being added one at a time) and
  *   reasoned about as if they had every legal candidate.
  */
-export function findHint(values: Grid, pencil: Cands, solution: Grid, removedCorrect: number[] = []): Hint {
+export function findHint(
+  values: Grid,
+  pencil: Cands,
+  solution: Grid,
+  removedCorrect: number[] = [],
+  g: Geometry = CLASSIC,
+): Hint {
+  const cellName = (i: number) => g.cellName(i);
+  const cellList = (cs: number[]) => cs.map(cellName).join(', ');
   if (values.every((v, i) => v === solution[i])) return { kind: 'solved', message: 'The puzzle is solved!' };
 
   const wrong = values.map((v, i) => (v && v !== solution[i] ? i : -1)).filter((i) => i >= 0);
@@ -46,8 +56,8 @@ export function findHint(values: Grid, pencil: Cands, solution: Grid, removedCor
     };
   }
 
-  const legal = computeCandidates(values);
-  const cands = effectiveCandidates(values, pencil);
+  const legal = legalCandidates(g, values);
+  const cands = effectiveCandidates(values, pencil, g);
   const missing = cands.map((m, i) => (!values[i] && !has(m, solution[i]) ? i : -1)).filter((i) => i >= 0);
   const removed = missing.filter((i) => removedCorrect.includes(i));
   if (removed.length) {
@@ -65,13 +75,13 @@ export function findHint(values: Grid, pencil: Cands, solution: Grid, removedCor
   // Clean-up: pencil marks that a placed peer already rules out.
   const conflicts: CellDigit[] = [];
   const examples: string[] = [];
-  for (let i = 0; i < 81; i++) {
+  for (let i = 0; i < g.cellCount; i++) {
     if (values[i] || !pencil[i]) continue;
-    for (const p of PEERS[i]) {
+    for (const p of g.peers[i]) {
       const d = values[p];
       if (d && has(pencil[i], d) && !conflicts.some((c) => c.cell === i && c.digit === d)) {
         conflicts.push({ cell: i, digit: d });
-        if (examples.length < 3) examples.push(`${d} from ${cellName(i)} (${cellName(p)} is ${d})`);
+        if (examples.length < 3) examples.push(`${g.symbol(d)} from ${cellName(i)} (${cellName(p)} is ${g.symbol(d)})`);
       }
     }
   }
@@ -94,7 +104,7 @@ export function findHint(values: Grid, pencil: Cands, solution: Grid, removedCor
   }
 
   const state: State = { values, cands };
-  const st = findStep(state);
+  const st = findStep(state, 4, g);
   if (st) return { kind: 'step', step: st, cands };
 
   // No technique applies (beyond the engine's repertoire): reveal a cell.
@@ -103,6 +113,6 @@ export function findHint(values: Grid, pencil: Cands, solution: Grid, removedCor
     kind: 'reveal',
     cell,
     digit: solution[cell],
-    message: `No logical step found with the techniques I know. ${cellName(cell)} is ${solution[cell]}.`,
+    message: `No logical step found with the techniques I know. ${cellName(cell)} is ${g.symbol(solution[cell])}.`,
   };
 }
