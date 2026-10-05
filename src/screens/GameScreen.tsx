@@ -5,11 +5,11 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Board, HintMarks, boardPixelSize } from '../components/Board';
 import { NumberPad, ToolButton } from '../components/Controls';
-import { Clock, CompletionDialog, GameHeader, RulesSheet } from '../components/GameChrome';
+import { Clock, CompletionDialog, GameHeader, RulesSheet, SafeModal } from '../components/GameChrome';
 import { HintPanel } from '../components/HintPanel';
 import { Difficulty, PuzzleHint } from '../engine/common';
 import { GameState, firstMistakeIndex, makeGameReducer, removedCorrectCells, wrongCells } from '../game/gameState';
@@ -125,6 +125,7 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
 
   // ---- derived ----
   const wrong = useMemo(() => wrongCells(game), [game]);
+  const candidateErrors = useMemo(() => (settings.errorDetection ? removedCorrectCells(game) : []), [game, settings.errorDetection]);
   const mistakeIdx = useMemo(() => firstMistakeIndex(game), [game]);
   const counts = useMemo(() => {
     const c = new Array(adapter.rules.maxDigit + 1).fill(0);
@@ -190,7 +191,9 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
     if (asPencil && g.values[selected]) return;
     dispatch({ type: 'input', cell: selected, digit: d, pencil: asPencil });
     if (!asPencil) setLastDigit(d);
-    if (!asPencil && g.values[selected] !== d && d !== g.solution[selected] && settings.errorDetection) buzz('error');
+    const wrongDigit = !asPencil && g.values[selected] !== d && d !== g.solution[selected];
+    const removedCorrect = asPencil && d === g.solution[selected] && ((g.pencil[selected] >> d) & 1) === 1;
+    if ((wrongDigit || removedCorrect) && settings.errorDetection) buzz('error');
     else buzz('tap');
   };
 
@@ -274,6 +277,7 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
       highlightDigit={highlightDigit}
       errorDetection={settings.errorDetection}
       highlightCandidates={settings.highlightCandidates}
+      candidateErrors={candidateErrors}
       hint={hintMarks}
       hidden={paused}
       theme={t}
@@ -370,9 +374,9 @@ export function GameScreen({ initial, onExit, onNewGame }: Props) {
         />
       </View>
 
-      <Modal visible={settingsOpen} animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
+      <SafeModal visible={settingsOpen} onRequestClose={() => setSettingsOpen(false)}>
         <SettingsScreen onBack={() => setSettingsOpen(false)} />
-      </Modal>
+      </SafeModal>
       <RulesSheet visible={helpOpen} def={def} onClose={() => setHelpOpen(false)} theme={t} />
 
       <CompletionDialog

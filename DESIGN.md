@@ -49,11 +49,12 @@ Each type keeps its own game in progress, stats and played-puzzle list.
 | Undo | Steps back one action. |
 | Rewind | Jumps back to just before your **first mistake that is still on the board**. |
 | Auto-finish | Offered when no placed digit is wrong and singles alone complete the grid. Fills cells one by one. |
-| Settings: error detection | Wrong digits turn red and a mistake counter appears in the header. |
-| Settings: auto candidates | Every empty cell is kept filled with its legal candidates; you remove them as you eliminate. Turning it on mid-game fills the empty cells. |
+| Settings: error detection | Wrong digits turn red, a cell turns red when you remove its correct candidate, and both count in the mistake counter in the header. |
+| Settings: auto candidates (on by default) | Every empty cell is kept filled with its legal candidates; you remove them as you eliminate. Turning it on mid-game fills the empty cells. |
 | Settings: highlight matching candidates | Selecting a filled 8 also circles every 8 pencil mark. |
 | Home screen | The hero card shows a live miniature of the game in progress (or the last level you started) with Resume / Start puzzle. Levels are one grouped list; a 2×2 box fills up as difficulty rises. Wordmark and level names use Bricolage Grotesque. |
 | Also | Light/dark/system theme, haptics, autosave + Continue, Android back button. |
+| Version | Bottom of Settings: "Sudokou 1.1.0" plus the update ID, channel and date (or "Installed build", "Web build", "Development server"). The version is bundled from app.json, so each over-the-air update shows its own. Changes per version are in CHANGELOG.md. |
 
 ## Difficulty levels
 
@@ -109,7 +110,10 @@ Each action in the history records the mistakes it introduced:
 Adding pencil marks is never a mistake. Rewind finds the earliest recorded
 mistake whose effect is still on the board and restores the state just before
 it. Mistakes you have already fixed yourself are ignored, so Rewind doesn't
-throw away good work. The mistake counter keeps its total.
+throw away good work. Both kinds count toward the mistake counter, which keeps
+its total after a rewind. With error detection on, a cell whose correct
+candidate has been removed is shown in red (and the phone buzzes), because a
+wrong elimination quietly breaks everything built on it.
 
 ## Engine notes
 

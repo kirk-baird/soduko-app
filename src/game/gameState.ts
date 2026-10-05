@@ -44,7 +44,7 @@ export interface GameState {
   values: Grid;
   pencil: Cands;
   history: HistoryEntry[];
-  mistakes: number; // wrong digits placed (counter)
+  mistakes: number; // wrong digits placed + correct candidates removed (counter)
   hintsUsed: number;
   elapsedMs: number;
   completed: boolean;
@@ -117,7 +117,8 @@ function commit(s: GameState, before: Snapshot, values: Grid, pencil: Cands, mis
     values,
     pencil,
     history: [...s.history, { before, mistakes }],
-    mistakes: s.mistakes + mistakes.filter((m) => m.kind === 'value').length,
+    // wrong digits and wrongly removed candidates both count as mistakes
+    mistakes: s.mistakes + mistakes.length,
     completed: isSolved(values, s.solution),
     ...extra,
   };

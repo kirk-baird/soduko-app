@@ -1,10 +1,10 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { AppState, Platform, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ToolButton } from '../components/Controls';
-import { Clock, CompletionDialog, GameHeader, RulesSheet } from '../components/GameChrome';
+import { Clock, CompletionDialog, GameHeader, RulesSheet, SafeModal } from '../components/GameChrome';
 import { HintPanel } from '../components/HintPanel';
 import { TentsBoard, tentsBoardSize } from '../components/TentsBoard';
 import { Difficulty, PuzzleHint } from '../engine/common';
@@ -281,9 +281,9 @@ export function TentsScreen({
         <ToolButton icon="lightbulb-on-outline" label="Hint" onPress={showHint} disabled={busy} theme={t} />
       </View>
 
-      <Modal visible={settingsOpen} animationType="slide" onRequestClose={() => setSettingsOpen(false)}>
+      <SafeModal visible={settingsOpen} onRequestClose={() => setSettingsOpen(false)}>
         <SettingsScreen onBack={() => setSettingsOpen(false)} />
-      </Modal>
+      </SafeModal>
       <RulesSheet visible={helpOpen} def={def} onClose={() => setHelpOpen(false)} theme={t} />
 
       <CompletionDialog

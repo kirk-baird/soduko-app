@@ -26,6 +26,8 @@ interface Props {
   highlightDigit: number;
   errorDetection: boolean;
   highlightCandidates: boolean;
+  /** Cells where the correct candidate was removed (shown as errors). */
+  candidateErrors?: number[];
   hint: HintMarks | null;
   hidden: boolean; // paused
   mini?: boolean;
@@ -142,6 +144,7 @@ export function Board(p: Props) {
   const sel = p.selected;
   const peerSet = useMemo(() => new Set(sel != null ? p.peers[sel] : []), [sel, p.peers]);
   const hl = p.highlightDigit;
+  const candErr = useMemo(() => new Set(p.candidateErrors ?? []), [p.candidateErrors]);
 
   const cells: React.ReactNode[] = [];
   layout.pos.forEach(([r, c], i) => {
@@ -164,7 +167,9 @@ export function Board(p: Props) {
       else if (hintData.pattern.has(i)) bg = t.hintPattern;
       else if (hintData.unitCells.has(i)) bg = given ? t.cellPeerGiven : t.cellPeer;
     } else if (!p.mini) {
-      if (sel === i) bg = t.cellSelected;
+      // a removed correct candidate shows even on the selected cell, so you notice straight away
+      if (candErr.has(i)) bg = t.cellError;
+      else if (sel === i) bg = t.cellSelected;
       else if (showError) bg = t.cellError;
       else if (hl && value === hl) bg = t.cellSame;
       else if (peerSet.has(i)) bg = given ? t.cellPeerGiven : t.cellPeer;

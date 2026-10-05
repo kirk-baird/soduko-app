@@ -1,6 +1,6 @@
 {
   "name": "sudokou",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "main": "index.ts",
   "dependencies": {
     "@expo-google-fonts/bricolage-grotesque": "^0.4.1",
@@ -34,7 +34,10 @@
     "typecheck": "tsc --noEmit",
     "build-bank": "tsx scripts/build-bank.ts",
     "survey": "tsx scripts/survey.ts",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "version": "node scripts/sync-app-version.mjs",
+    "update:preview": "node scripts/publish-update.mjs preview",
+    "update:production": "node scripts/publish-update.mjs production"
   },
   "private": true,
   "overrides": {

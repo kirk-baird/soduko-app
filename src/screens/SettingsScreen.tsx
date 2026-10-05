@@ -4,6 +4,7 @@ import { Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-nat
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Settings, useSettings } from '../settings';
 import { useTheme } from '../theme';
+import { buildInfo } from '../version';
 
 type BoolKey = { [K in keyof Settings]: Settings[K] extends boolean ? K : never }[keyof Settings];
 
@@ -11,7 +12,7 @@ const TOGGLES: { key: BoolKey; title: string; desc: string }[] = [
   {
     key: 'errorDetection',
     title: 'Error detection',
-    desc: 'Show wrong digits in red and keep a mistake counter.',
+    desc: 'Show wrong digits and wrongly removed candidates in red, and count both as mistakes.',
   },
   {
     key: 'autoCandidates',
@@ -25,6 +26,8 @@ const TOGGLES: { key: BoolKey; title: string; desc: string }[] = [
   },
   { key: 'haptics', title: 'Haptic feedback', desc: 'Small vibration on taps and mistakes.' },
 ];
+
+const BUILD = buildInfo();
 
 export function SettingsScreen({ onBack }: { onBack: () => void }) {
   const t = useTheme();
@@ -84,6 +87,11 @@ export function SettingsScreen({ onBack }: { onBack: () => void }) {
           <Text style={[styles.rowDesc, { color: t.text }]}>• Hints work from your own pencil marks; cells with none are treated as having every possible candidate.</Text>
           <Text style={[styles.rowDesc, { color: t.text }]}>• Tap the timer to pause.</Text>
         </View>
+
+        <View style={styles.about} accessibilityLabel={`Version ${BUILD.version}, ${BUILD.detail}`}>
+          <Text style={[styles.aboutVersion, { color: t.textMuted }]}>Sudokou {BUILD.version}</Text>
+          <Text style={[styles.aboutDetail, { color: t.textMuted }]}>{BUILD.detail}</Text>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -102,4 +110,7 @@ const styles = StyleSheet.create({
   segment: { flexDirection: 'row', borderRadius: 12, padding: 4 },
   segBtn: { flex: 1, alignItems: 'center', paddingVertical: 8, borderRadius: 9 },
   segText: { fontSize: 14, fontWeight: '600' },
+  about: { alignItems: 'center', marginTop: 12, marginBottom: 8, gap: 2 },
+  aboutVersion: { fontSize: 13, fontWeight: '600' },
+  aboutDetail: { fontSize: 12 },
 });

@@ -11,7 +11,7 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   errorDetection: true,
-  autoCandidates: false,
+  autoCandidates: true,
   highlightCandidates: true,
   haptics: true,
   theme: 'system',

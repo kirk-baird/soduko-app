@@ -66,6 +66,7 @@ describe('game state', () => {
     expect(has(s.pencil[2], 4)).toBe(true);
     s = run(s, { type: 'input', cell: 2, digit: 4, pencil: true }); // toggles the correct 4 off
     expect(firstMistakeIndex(s)).toBe(0);
+    expect(s.mistakes).toBe(1); // counts as a mistake
     s = run(s, { type: 'input', cell: 2, digit: 4, pencil: true }); // back on
     expect(firstMistakeIndex(s)).toBe(-1);
   });
@@ -122,5 +123,24 @@ describe('game state', () => {
     s = run(s, { type: 'fillCandidates' });
     expect(s.pencil[2]).toBe(bit(4)); // 5 is illegal (row has 5); 4 kept
     expect(s.pencil[3]).toBe(computeCandidates(PUZZLE)[3]);
+  });
+
+  it('rewinds to the first wrong candidate elimination, even before a later wrong digit', () => {
+    let s = run(
+      fresh(true),
+      { type: 'input', cell: 3, digit: 6, pencil: false }, // ok
+      { type: 'input', cell: 2, digit: 4, pencil: true }, // removes the correct candidate 4 from R1C3
+      { type: 'input', cell: 10, digit: 7, pencil: false }, // ok
+      { type: 'input', cell: 5, digit: 1, pencil: false }, // wrong digit (should be 8)
+    );
+    expect(s.mistakes).toBe(2);
+    expect(firstMistakeIndex(s)).toBe(1);
+    s = run(s, { type: 'rewind' });
+    expect(s.values[3]).toBe(6); // work before the mistake is kept
+    expect(has(s.pencil[2], 4)).toBe(true); // the eliminated candidate is back
+    expect(s.values[10]).toBe(0);
+    expect(s.values[5]).toBe(0);
+    expect(firstMistakeIndex(s)).toBe(-1);
+    expect(s.mistakes).toBe(2); // the counter keeps its total
   });
 });

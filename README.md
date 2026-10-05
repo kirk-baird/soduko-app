@@ -36,6 +36,24 @@ npx eas-cli@latest build -p android --profile preview
 When it finishes, open the download link on the phone and install the APK.
 (With the Android SDK installed locally, `npx expo run:android` also works.)
 
+## Versioning and updates
+
+The version lives in `package.json` and `app.json` (kept in sync) and is shown
+at the bottom of Settings, with the update ID, channel and date on an installed
+app. Every update gets a new version:
+
+```bash
+npm version patch --no-git-tag-version   # or minor / major; also updates app.json
+# add a "## x.y.z" section with bullet points to CHANGELOG.md
+npm run update:preview                    # eas update, message "vx.y.z: <changelog bullets>"
+npm run update:production
+```
+
+The runtime version follows the Expo SDK (`runtimeVersion.policy: sdkVersion`),
+so bumping the app version doesn't stop installed builds from receiving the
+update. A new native build is only needed after an SDK upgrade or a new native
+module.
+
 ## Development
 
 ```bash

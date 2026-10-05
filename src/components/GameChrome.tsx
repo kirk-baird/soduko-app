@@ -4,13 +4,26 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { DIFFICULTY_NAMES, Difficulty } from '../engine/common';
 import { FONTS } from '../fonts';
 import { GameDef } from '../games/registry';
 import { formatTime } from '../stats';
 import { Theme } from '../theme';
 import { Dialog } from './Dialog';
+
+/**
+ * Full-screen modal with its own safe-area context. On iOS a Modal is rendered
+ * outside the app's SafeAreaProvider, so without this the insets come back as
+ * zero and headers slide under the status bar / Dynamic Island.
+ */
+export function SafeModal(props: { visible: boolean; onRequestClose: () => void; children: React.ReactNode }) {
+  return (
+    <Modal visible={props.visible} animationType="slide" onRequestClose={props.onRequestClose}>
+      <SafeAreaProvider>{props.children}</SafeAreaProvider>
+    </Modal>
+  );
+}
 
 /** Pausable stopwatch held outside React state so boards don't re-render every second. */
 export class Clock {
@@ -118,7 +131,7 @@ export function RulesList({ def, theme: t }: { def: GameDef; theme: Theme }) {
 export function RulesSheet(props: { visible: boolean; def: GameDef; onClose: () => void; theme: Theme }) {
   const t = props.theme;
   return (
-    <Modal visible={props.visible} animationType="slide" onRequestClose={props.onClose}>
+    <SafeModal visible={props.visible} onRequestClose={props.onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
         <View style={styles.sheetHeader}>
           <Text style={[styles.sheetTitle, { color: t.text }]}>How to play {props.def.name}</Text>
@@ -130,7 +143,7 @@ export function RulesSheet(props: { visible: boolean; def: GameDef; onClose: () 
           <RulesList def={props.def} theme={t} />
         </ScrollView>
       </SafeAreaView>
-    </Modal>
+    </SafeModal>
   );
 }
 

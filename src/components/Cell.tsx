@@ -100,11 +100,16 @@ function CellView(p: CellProps) {
               <View key={d} style={[styles.cand, { width: candSize, height: candSize }]}>
                 {on ? (
                   <View
+                    // Always give this view a background (transparent when not
+                    // highlighted) and keep it from being flattened: otherwise
+                    // Android recreates it when a highlight appears and drops the
+                    // corner radius, so highlights flip between shapes.
+                    collapsable={false}
                     style={{
                       width: candSize * 0.9,
                       height: candSize * 0.9,
-                      borderRadius: candSize * 0.45,
-                      backgroundColor: bg,
+                      borderRadius: candSize * 0.2,
+                      backgroundColor: bg ?? 'transparent',
                       alignItems: 'center',
                       justifyContent: 'center',
                     }}
