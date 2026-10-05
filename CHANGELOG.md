@@ -1,7 +1,11 @@
 # Changelog
 
 The version is shown at the bottom of Settings. Bump it before every update
-(see "Versioning" in README.md).
+(see "Versioning and updates" in README.md). Pushing a new version to master publishes it to the preview channel.
+
+## 1.1.2
+
+- Updates reach the installed app again: runtime version pinned to 1.0.0 (matches the preview APK)
 
 ## 1.1.1
 

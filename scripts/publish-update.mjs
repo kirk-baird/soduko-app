@@ -2,6 +2,8 @@
 // changelog notes for it:
 //   npm run update:preview
 //   npm run update:production
+// Extra arguments go straight to `eas update` (CI adds --non-interactive).
+// The EAS environment has the same name as the channel (preview/production).
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
@@ -28,7 +30,9 @@ const message = `v${version}${notes ? `: ${notes}` : ''}`.slice(0, 500);
 
 console.log(`Publishing ${message}\n  to channel "${channel}"`);
 if (process.env.DRY_RUN) process.exit(0);
-const r = spawnSync('npx', ['eas-cli@latest', 'update', '--channel', channel, '--message', message], {
+const extra = process.argv.slice(3);
+const args = ['eas-cli@latest', 'update', '--channel', channel, '--environment', channel, '--message', message, ...extra];
+const r = spawnSync('npx', args, {
   stdio: 'inherit',
   shell: process.platform === 'win32',
 });

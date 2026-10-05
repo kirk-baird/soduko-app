@@ -2,7 +2,7 @@
   "expo": {
     "name": "Sudokou",
     "slug": "sudokou",
-    "version": "1.1.1",
+    "version": "1.1.2",
 	"owner": "kirk-baird",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -29,9 +29,7 @@
         "projectId": "2880ebeb-433a-427b-b810-109e98ef4a03"
       }
     },
-    "runtimeVersion": {
-      "policy": "sdkVersion"
-    },
+    "runtimeVersion": "1.0.0",
     "updates": {
       "url": "https://u.expo.dev/2880ebeb-433a-427b-b810-109e98ef4a03"
     }
