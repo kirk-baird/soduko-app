@@ -3,7 +3,7 @@
     "name": "Sudokou",
     "slug": "sudokou",
     "version": "1.1.2",
-	"owner": "kirk-baird",
+    "owner": "kirk-baird",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -13,10 +13,9 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "monochromeImage": "./assets/adaptive-monochrome.png",
+        "backgroundColor": "#FBF7F0"
       },
       "predictiveBackGestureEnabled": false,
       "package": "dev.kirk.sudokou"
@@ -29,9 +28,25 @@
         "projectId": "2880ebeb-433a-427b-b810-109e98ef4a03"
       }
     },
-    "runtimeVersion": { "policy": "sdkVersion"},
+    "runtimeVersion": {
+      "policy": "sdkVersion"
+    },
     "updates": {
       "url": "https://u.expo.dev/2880ebeb-433a-427b-b810-109e98ef4a03"
-    }
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#F5F2EC",
+          "dark": {
+            "backgroundColor": "#14151C"
+          }
+        }
+      ]
+    ]
   }
 }
