@@ -3,6 +3,10 @@
 The version is shown at the bottom of Settings. Bump it before every update
 (see "Versioning" in README.md).
 
+## 1.1.1
+
+- A removed correct candidate stays a mistake (red cell, Rewind, hint) even after the cell's other candidates are removed or erased
+
 ## 1.1.0
 
 - Removing a cell's correct candidate counts as a mistake, turns the cell red and is a Rewind point

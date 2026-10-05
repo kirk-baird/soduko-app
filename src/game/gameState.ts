@@ -127,8 +127,10 @@ function commit(s: GameState, before: Snapshot, values: Grid, pencil: Cands, mis
 /** Is this recorded mistake still affecting the current board? */
 function stillPresent(s: GameState, m: Mistake): boolean {
   if (m.kind === 'value') return s.values[m.cell] === m.digit;
-  const p = s.pencil[m.cell];
-  return s.values[m.cell] === 0 && p !== 0 && !has(p, m.digit);
+  // Still missing from an unsolved cell, even if the cell now has no marks at
+  // all: removing the other candidates afterwards doesn't fix it. Adding the
+  // digit back or placing a digit in the cell does.
+  return s.values[m.cell] === 0 && !has(s.pencil[m.cell], m.digit);
 }
 
 /** Index of the earliest history entry whose mistake is still on the board, or -1. */

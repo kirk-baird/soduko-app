@@ -54,7 +54,7 @@ Each type keeps its own game in progress, stats and played-puzzle list.
 | Settings: highlight matching candidates | Selecting a filled 8 also circles every 8 pencil mark. |
 | Home screen | The hero card shows a live miniature of the game in progress (or the last level you started) with Resume / Start puzzle. Levels are one grouped list; a 2×2 box fills up as difficulty rises. Wordmark and level names use Bricolage Grotesque. |
 | Also | Light/dark/system theme, haptics, autosave + Continue, Android back button. |
-| Version | Bottom of Settings: "Sudokou 1.1.0" plus the update ID, channel and date (or "Installed build", "Web build", "Development server"). The version is bundled from app.json, so each over-the-air update shows its own. Changes per version are in CHANGELOG.md. |
+| Version | Bottom of Settings: "Sudokou 1.1.1" plus the update ID, channel and date (or "Installed build", "Web build", "Development server"). The version is bundled from app.json, so each over-the-air update shows its own. Changes per version are in CHANGELOG.md. |
 
 ## Difficulty levels
 
@@ -107,7 +107,9 @@ Each action in the history records the mistakes it introduced:
 - placing a digit that isn't the solution digit, or
 - toggling **off** the correct candidate in a cell's pencil marks.
 
-Adding pencil marks is never a mistake. Rewind finds the earliest recorded
+A removed correct candidate stays a mistake until the digit is back in the
+cell's marks or placed in the cell; removing or erasing the cell's other marks
+doesn't clear it. Adding pencil marks is never a mistake. Rewind finds the earliest recorded
 mistake whose effect is still on the board and restores the state just before
 it. Mistakes you have already fixed yourself are ignored, so Rewind doesn't
 throw away good work. Both kinds count toward the mistake counter, which keeps

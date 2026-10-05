@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bit, computeCandidates, has, parseGrid } from '../../engine/grid';
 import { findHint } from '../../engine/hint';
-import { GameAction, GameState, firstMistakeIndex, gameReducer, newGame } from '../gameState';
+import { GameAction, GameState, firstMistakeIndex, gameReducer, newGame, removedCorrectCells } from '../gameState';
 
 const PUZZLE = parseGrid('53..7....6..195....98....6.8...6...34..8.3..17...2...6.6....28....419..5....8..79');
 const SOLUTION = parseGrid('534678912672195348198342567859761423426853791713924856961537284287419635345286179');
@@ -68,6 +68,33 @@ describe('game state', () => {
     expect(firstMistakeIndex(s)).toBe(0);
     expect(s.mistakes).toBe(1); // counts as a mistake
     s = run(s, { type: 'input', cell: 2, digit: 4, pencil: true }); // back on
+    expect(firstMistakeIndex(s)).toBe(-1);
+  });
+
+  it('keeps a removed correct candidate as a mistake after the cell runs out of marks', () => {
+    // R1C3 holds {1, 4}, the answer is 4: remove 4 (mistake), then remove 1
+    let s = run(fresh(false), { type: 'input', cell: 2, digit: 1, pencil: true }, { type: 'input', cell: 2, digit: 4, pencil: true });
+    s = run(s, { type: 'input', cell: 2, digit: 4, pencil: true });
+    expect(firstMistakeIndex(s)).toBe(2);
+    s = run(s, { type: 'input', cell: 2, digit: 1, pencil: true });
+    expect(s.pencil[2]).toBe(0);
+    expect(firstMistakeIndex(s)).toBe(2);
+    expect(removedCorrectCells(s)).toEqual([2]);
+    const h = findHint(s.values, s.pencil, SOLUTION, removedCorrectCells(s));
+    expect(h.kind).toBe('missingCandidate');
+    // erasing the cell doesn't fix it either; putting the 4 back does
+    s = run(s, { type: 'input', cell: 2, digit: 1, pencil: true }, { type: 'erase', cell: 2, autoCandidates: false });
+    expect(firstMistakeIndex(s)).toBe(2);
+    s = run(s, { type: 'input', cell: 2, digit: 4, pencil: true });
+    expect(firstMistakeIndex(s)).toBe(-1);
+    expect(removedCorrectCells(s)).toEqual([]);
+    expect(run(s, { type: 'rewind' })).toBe(s); // nothing to rewind
+  });
+
+  it('placing the correct digit fixes a removed candidate', () => {
+    let s = run(fresh(true), { type: 'input', cell: 2, digit: 4, pencil: true });
+    expect(firstMistakeIndex(s)).toBe(0);
+    s = run(s, { type: 'input', cell: 2, digit: 4, pencil: false });
     expect(firstMistakeIndex(s)).toBe(-1);
   });
 

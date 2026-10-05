@@ -148,7 +148,8 @@ export function findHint(p: CalcudokuPuzzle, values: number[], pencil: number[],
   const legal = legalCandidates(ctx, values);
   const cands = values.map((v, i) => (v ? 0 : pencil[i] ? pencil[i] : legal[i]));
   const missing = cands.map((m, i) => (!values[i] && !hasBit(m, solution[i]) ? i : -1)).filter((i) => i >= 0);
-  const removed = missing.filter((i) => removedCorrect.includes(i));
+  // checked against the marks themselves: an emptied cell still lacks the digit
+  const removed = removedCorrect.filter((i) => !values[i] && !hasBit(pencil[i], solution[i]));
   if (removed.length) {
     return {
       kind: 'missingCandidate',

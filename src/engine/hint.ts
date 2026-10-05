@@ -59,7 +59,8 @@ export function findHint(
   const legal = legalCandidates(g, values);
   const cands = effectiveCandidates(values, pencil, g);
   const missing = cands.map((m, i) => (!values[i] && !has(m, solution[i]) ? i : -1)).filter((i) => i >= 0);
-  const removed = missing.filter((i) => removedCorrect.includes(i));
+  // checked against the marks themselves: an emptied cell still lacks the digit
+  const removed = removedCorrect.filter((i) => !values[i] && !has(pencil[i], solution[i]));
   if (removed.length) {
     return {
       kind: 'missingCandidate',

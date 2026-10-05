@@ -147,7 +147,8 @@ export function findHint(p: KakuroPuzzle, values: number[], pencil: number[], re
   const cands = new Array<number>(ctx.n).fill(0);
   for (const c of ctx.whiteCells) if (!values[c]) cands[c] = pencil[c] ? pencil[c] & 0x3fe : legal[c];
   const missing = ctx.whiteCells.filter((c) => !values[c] && !(cands[c] & bit(sol[c])));
-  const removed = missing.filter((c) => pencil[c] && removedCorrect.includes(c));
+  // checked against the marks themselves: an emptied cell still lacks the digit
+  const removed = removedCorrect.filter((c) => !values[c] && !(pencil[c] & bit(sol[c])));
   if (removed.length) {
     return {
       kind: 'missingCandidate',
