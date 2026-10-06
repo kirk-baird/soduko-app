@@ -111,6 +111,21 @@ function placeInto(rules: DigitRules, values: Grid, pencil: Cands, solution: Gri
   return digit !== solution[cell] ? [{ kind: 'value', cell, digit }] : [];
 }
 
+/**
+ * A placed digit is leaving `cell` (overwritten or cleared): give it back to
+ * the peers that lost it when it was placed, where it is still legal.
+ * Otherwise fixing a wrong digit leaves it wrongly removed from its peers.
+ */
+function restoreToPeers(rules: DigitRules, s: GameState, values: Grid, pencil: Cands, cell: number, old: number) {
+  // the latest action that put `old` into the cell
+  let k = s.history.length - 1;
+  while (k >= 0 && s.history[k].before.values[cell] === old) k--;
+  if (k < 0) return;
+  const had = s.history[k].before.pencil;
+  const legal = rules.legalCandidates(values);
+  for (const p of rules.peers[cell]) if (!values[p] && has(had[p], old) && has(legal[p], old)) pencil[p] |= bit(old);
+}
+
 function commit(s: GameState, before: Snapshot, values: Grid, pencil: Cands, mistakes: Mistake[], extra: Partial<GameState> = {}): GameState {
   return {
     ...s,
@@ -176,12 +191,15 @@ function reduce(rules: DigitRules, s: GameState, a: GameAction): GameState {
           had && digit === s.solution[cell] ? [{ kind: 'candidate', cell, digit }] : [];
         return commit(s, before, values, pencil, mistakes);
       }
-      if (values[cell] === digit) {
+      const old = values[cell];
+      if (old === digit) {
         // tapping the same digit again clears it
         values[cell] = 0;
+        restoreToPeers(rules, s, values, pencil, cell, old);
         return commit(s, before, values, pencil, []);
       }
       const mistakes = placeInto(rules, values, pencil, s.solution, cell, digit);
+      if (old) restoreToPeers(rules, s, values, pencil, cell, old);
       return commit(s, before, values, pencil, mistakes);
     }
 
@@ -195,6 +213,7 @@ function reduce(rules: DigitRules, s: GameState, a: GameAction): GameState {
       const old = values[cell];
       if (old) {
         values[cell] = 0;
+        restoreToPeers(rules, s, values, pencil, cell, old);
         if (a.autoCandidates) {
           const legal = rules.legalCandidates(values);
           pencil[cell] = legal[cell];

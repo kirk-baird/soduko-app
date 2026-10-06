@@ -3,6 +3,12 @@
 The version is shown at the bottom of Settings. Bump it before every update
 (see "Versioning and updates" in README.md). Pushing a new version to master publishes it to the preview channel.
 
+## 1.1.3
+
+- Correcting a wrong digit (overwriting, tapping it off or erasing) gives its candidates back to the cells it had cleared
+- New app icon
+- Runtime version follows the Expo SDK (needs the new APK to receive updates)
+
 ## 1.1.2
 
 - Updates reach the installed app again: runtime version pinned to 1.0.0 (matches the preview APK)

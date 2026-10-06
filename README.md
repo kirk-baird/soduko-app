@@ -62,11 +62,12 @@ Settings → Secrets and variables → Actions.
 To publish from your own machine instead: `npm run update:preview` or
 `npm run update:production`.
 
-The runtime version is pinned in `app.json` (`"runtimeVersion": "1.0.0"`).
-An installed app only accepts updates with the same runtime version, so the app
-version can change freely while installed APKs keep receiving updates. Change
-the runtime version only when native code changes (an SDK upgrade or a new
-native module), and then build and install a new APK. Expo Go can't open these
+The runtime version follows the Expo SDK (`"runtimeVersion": { "policy": "sdkVersion" }`
+in `app.json`). An installed app only accepts updates with the same runtime
+version, so the app version can change freely while installed APKs keep
+receiving updates. After an SDK upgrade or a new native module (or a change to
+native config such as the icon), build and install a new APK:
+`npx eas-cli@latest build --profile preview --platform android`. Expo Go can't open these
 updates (it only opens updates whose runtime is its own SDK); use
 `npx expo start` to try changes in Expo Go.
 

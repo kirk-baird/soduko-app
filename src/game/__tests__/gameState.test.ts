@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { bit, computeCandidates, has, parseGrid } from '../../engine/grid';
 import { findHint } from '../../engine/hint';
+import { CLASSIC } from '../../engine/sudoku/geometry';
 import { GameAction, GameState, firstMistakeIndex, gameReducer, newGame, removedCorrectCells } from '../gameState';
 
 const PUZZLE = parseGrid('53..7....6..195....98....6.8...6...34..8.3..17...2...6.6....28....419..5....8..79');
@@ -169,5 +170,27 @@ describe('game state', () => {
     expect(s.values[5]).toBe(0);
     expect(firstMistakeIndex(s)).toBe(-1);
     expect(s.mistakes).toBe(2); // the counter keeps its total
+  });
+
+  it('overwriting or clearing a wrong digit gives it back to the peers it was removed from', () => {
+    const start = fresh(true);
+    const peers = CLASSIC.peers[3].filter((p) => has(start.pencil[p], 2));
+    expect(peers.length).toBeGreaterThan(0);
+    let s = run(start, { type: 'input', cell: 3, digit: 2, pencil: false }); // wrong (6)
+    for (const p of peers) expect(has(s.pencil[p], 2)).toBe(false);
+    const fixed = run(s, { type: 'input', cell: 3, digit: 6, pencil: false });
+    for (const p of peers) expect(has(fixed.pencil[p], 2)).toBe(true);
+    for (const p of CLASSIC.peers[3]) expect(has(fixed.pencil[p], 6)).toBe(false);
+    s = run(s, { type: 'input', cell: 3, digit: 2, pencil: false }); // tap again to clear
+    for (const p of peers) expect(has(s.pencil[p], 2)).toBe(true);
+  });
+
+  it('only restores a removed digit to peers that had it marked', () => {
+    let s = run(fresh(), { type: 'input', cell: 5, digit: 2, pencil: true }); // R1C6 shares row with R1C4
+    s = run(s, { type: 'input', cell: 3, digit: 2, pencil: false }, { type: 'input', cell: 3, digit: 6, pencil: false });
+    expect(has(s.pencil[5], 2)).toBe(true);
+    expect(CLASSIC.peers[3].filter((p) => p !== 5 && s.pencil[p]).length).toBe(0);
+    s = run(s, { type: 'input', cell: 3, digit: 2, pencil: false }, { type: 'erase', cell: 3, autoCandidates: false });
+    expect(has(s.pencil[5], 2)).toBe(true);
   });
 });

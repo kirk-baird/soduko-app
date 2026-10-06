@@ -46,6 +46,7 @@ Each type keeps its own game in progress, stats and played-puzzle list.
 | Row / column / box highlight | Always on for the selected cell. |
 | Identical numbers | Selecting a filled 8 highlights every other 8. The highlight stays when you then select an empty cell (handy for clearing that digit's candidates); tap the selected empty cell again to clear it. Placing a digit makes it the highlighted one. |
 | Candidate hint | Finds the easiest deduction from **your current pencil marks** and explains it. The board highlights the pattern (yellow), the reason candidates (green/orange) and what to remove (red, struck through). *Apply* carries it out. |
+| Placing a digit | Removes it from its peers' pencil marks. If you later overwrite, tap-clear or erase it, it goes back to the peers that had it (where still legal), so fixing a wrong digit doesn't leave its candidates missing. |
 | Undo | Steps back one action. |
 | Rewind | Jumps back to just before your **first mistake that is still on the board**. |
 | Auto-finish | Offered when no placed digit is wrong and singles alone complete the grid. Fills cells one by one. |
