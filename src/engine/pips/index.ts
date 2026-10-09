@@ -606,27 +606,5 @@ function caseSplit(f: Frame, s: State, maxOptions = 6, maxSteps = 14): CaseSplit
   return best?.split ?? null;
 }
 
-/**
- * If the rest of the puzzle follows from the basic (tier-0) rules alone, the
- * dominoes still to put down, in deduction order; otherwise null. Assumes the
- * player's dominoes are correct.
- */
-export function finishable(p: PipsPuzzle, place: Placement): { k: number; spot: Spot }[] | null {
-  const f = makeFrame(p);
-  const s = stateFrom(f, place);
-  const out: { k: number; spot: Spot }[] = [];
-  for (let guard = 0; guard < 4 * f.places.length && !s.domAt.every((x) => x >= 0); guard++) {
-    const ctx = makeCtx(f, s);
-    let st: PStep | null = null;
-    for (const r of TIER0) if ((st = r.find(ctx))) break;
-    if (!st) return null;
-    applyStep(f, s, st);
-    if (st.place >= 0) out.push({ k: f.places[st.place].d, spot: spotOf(f, st.place) });
-  }
-  if (!s.domAt.every((x) => x >= 0)) return null;
-  for (const m of out) if (isWrongSpot(p, m.k, m.spot)) return null;
-  return out;
-}
-
 /** Ids, names and tiers of every rule (for docs / settings screens). */
 export const TECHNIQUES = RULES.map(({ id, name, tier }) => ({ id, name, tier }));

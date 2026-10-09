@@ -8,7 +8,6 @@ import {
   Placement,
   Spot,
   findHint,
-  finishable,
   generate,
   grade,
   hintMove,
@@ -219,28 +218,7 @@ describe('findHint', () => {
   });
 });
 
-describe('finishable and status', () => {
-  it('returns the missing dominoes when only basic steps remain', () => {
-    const p = generate('hard', makeRng(3))!;
-    const m: Placement = p.solution.map((s) => s);
-    m[0] = null;
-    m[1] = null;
-    const out = finishable(p, m);
-    expect(out).not.toBeNull();
-    expect(out!.map((x) => x.k).sort()).toEqual([0, 1]);
-    expect(isSolved(p, m)).toBe(false);
-    for (const x of out!) m[x.k] = x.spot;
-    expect(isSolved(p, m)).toBe(true);
-    expect(finishable(p, m)).toEqual([]);
-  });
-
-  it('returns null when harder reasoning is still needed', () => {
-    const rng = makeRng(8);
-    const p = generate('extraHard', rng)!;
-    expect(grade(p).maxTier).toBeGreaterThanOrEqual(3);
-    expect(finishable(p, empty(p))).toBeNull();
-  });
-
+describe('region status', () => {
   it('reports regions as open, met or broken', () => {
     const p = smallPuzzle();
     const m = empty(p);

@@ -10,7 +10,7 @@ import { State, TECHNIQUES, findStep } from '../engine/techniques';
 import { PipsPuzzle, findHint as pipsHint, isSolved as pipsSolved } from '../engine/pips';
 import { TENT, GRASS, TentsPuzzle } from '../engine/tents';
 import { gameReducer, makeGameReducer, newGame } from '../game/gameState';
-import { dropSpot, firstPipsMistake, newPipsGame, occupancy, pipsReducer, turnSpot } from '../game/pipsState';
+import { Turn, firstPipsMistake, newPipsGame, nextTurn, occupancy, pipsReducer, spotTurn, tapSpot, turnSpot, turnedSpot } from '../game/pipsState';
 import { firstTentsMistake, newTentsGame, tentsReducer } from '../game/tentsState';
 import { GAMES, SudokuPayload } from '../games/registry';
 import { GAME_TYPES } from '../games/types';
@@ -224,21 +224,72 @@ describe('pips game state', () => {
     expect(occupancy(s.place).get(p.solution[0][0])).toBe(1);
   });
 
-  it('drops next to the tapped cell and turns through every orientation', () => {
-    let s = newPipsGame('p', 'hard', p);
-    const cell = p.solution[k][0];
-    const spot = dropSpot(s, k, cell)!;
-    expect(spot[0]).toBe(cell);
-    s = pipsReducer(s, { type: 'put', k, spot });
-    const seen = new Set<string>([spot.join()]);
-    for (let i = 0; i < 4; i++) {
-      const next = turnSpot(s, k)!;
-      expect(p.cells).toContain(next[0]);
-      expect(p.cells).toContain(next[1]);
-      seen.add(next.join());
-      s = pipsReducer(s, { type: 'put', k, spot: next });
+  it('knows how a domino lies and where it goes for each turn', () => {
+    for (const spot of p.solution) {
+      expect(turnedSpot(p, Math.min(...spot), spotTurn(p, spot))).toEqual(spot);
+      const flipped: [number, number] = [spot[1], spot[0]];
+      expect(spotTurn(p, flipped)).toBe((spotTurn(p, spot) + 2) % 4);
     }
-    expect(seen.size).toBeGreaterThanOrEqual(2); // at least a flip in place
+    const cell = p.solution[0][0];
+    const r = Math.floor(cell / p.cols);
+    const c = cell % p.cols;
+    const on = (rr: number, cc: number) => (rr < p.rows && cc < p.cols && p.cells.includes(rr * p.cols + cc) ? rr * p.cols + cc : -1);
+    const expected = [
+      [cell, on(r, c + 1)],
+      [cell, on(r + 1, c)],
+      [on(r, c + 1), cell],
+      [on(r + 1, c), cell],
+    ];
+    ([0, 1, 2, 3] as Turn[]).forEach((o) => {
+      const want = expected[o];
+      expect(turnedSpot(p, cell, o)).toEqual(want.includes(-1) ? null : want);
+    });
+    expect(turnedSpot(p, p.cols - 1 + (p.rows - 1) * p.cols, 0)).toBeNull(); // off the right edge
+  });
+
+  it('lays a tapped domino the way it is turned, shifting or turning it to fit', () => {
+    const s = newPipsGame('p', 'hard', p);
+    for (const o of [0, 1, 2, 3] as Turn[]) {
+      for (const cell of p.cells) {
+        const spot = tapSpot(s, k, cell, o);
+        if (!spot) continue;
+        expect(spot).toContain(cell);
+        expect([o, nextTurn(o)]).toContain(spotTurn(p, spot));
+        const shown = turnedSpot(p, cell, o);
+        if (shown) expect(spot).toEqual(shown);
+      }
+    }
+    // Prefers empty cells: with the cell to the right taken, it slides left instead.
+    const cell = p.cells.find((c) => turnedSpot(p, c, 0) && c % p.cols > 0 && p.cells.includes(c - 1) && turnedSpot(p, c + 1, 1));
+    expect(cell).toBeDefined();
+    const other = k === 0 ? 1 : 0;
+    const blocked = pipsReducer(s, { type: 'put', k: other, spot: turnedSpot(p, cell! + 1, 1)! });
+    expect(tapSpot(blocked, k, cell!, 0)).toEqual([cell! - 1, cell!]);
+  });
+
+  it('turns a placed domino clockwise around the tapped half', () => {
+    // A cell c with all four neighbours, and a cell above its right-hand neighbour.
+    const P = (['medium', 'hard', 'extraHard', 'extreme'] as const)
+      .flatMap((d) => def.bank()[d].map((e: unknown) => def.fromBank(e) as PipsPuzzle))
+      .find((q) => q.cells.some((c) => [c - 1, c + 1, c - q.cols, c + q.cols, c + 1 - q.cols].every((j) => q.cells.includes(j)) && c % q.cols > 0 && (c + 1) % q.cols > 0))!;
+    expect(P).toBeDefined();
+    const W = P.cols;
+    const c = P.cells.find((x) => [x - 1, x + 1, x - W, x + W, x + 1 - W].every((j) => P.cells.includes(j)) && x % W > 0 && (x + 1) % W > 0)!;
+    let s = newPipsGame('p', 'hard', P);
+    s = pipsReducer(s, { type: 'put', k: 0, spot: [c, c + 1] });
+    // Around the first half: right -> below -> left -> above -> right, first half fixed.
+    for (const want of [c + W, c - 1, c - W, c + 1]) {
+      const next = turnSpot(s, 0, c)!;
+      expect(next).toEqual([c, want]);
+      s = pipsReducer(s, { type: 'put', k: 0, spot: next });
+    }
+    // Around the second half: the first half swings from its left to above it.
+    expect(turnSpot(s, 0, c + 1)).toEqual([c + 1 - W, c + 1]);
+    // A blocked position is skipped: with a domino below c, right goes straight to left.
+    s = pipsReducer(s, { type: 'put', k: 1, spot: turnedSpot(P, c + W, 0) ?? [c + W, c + 2 * W] });
+    expect(turnSpot(s, 0, c)).toEqual([c, c - 1]);
+    // Not one of its cells: no turn.
+    expect(turnSpot(s, 0, c - W)).toBeNull();
   });
 
   it('completes when every domino is down', () => {

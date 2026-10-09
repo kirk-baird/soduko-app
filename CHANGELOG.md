@@ -3,6 +3,13 @@
 The version is shown at the bottom of Settings. Bump it before every update
 (see "Versioning and updates" in README.md). Pushing a new version to master publishes it to the preview channel.
 
+## 1.2.1
+
+- Pips: drag dominoes from the tray onto the board, move placed ones, or drag them off to put them back
+- Pips: tap a tray domino again to turn it before laying it; tapping a placed domino turns it clockwise around the half you tap
+- Pips: no error detection or auto-finish, which gave the answer away; Rewind is always available
+- Pips (web): dragging a domino you just placed no longer gets cancelled by the browser
+
 ## 1.2.0
 
 - New game: Pips (after the NYT domino game), with Medium to Extreme levels graded by technique, hints and auto-finish

@@ -12,7 +12,7 @@ const TOGGLES: { key: BoolKey; title: string; desc: string }[] = [
   {
     key: 'errorDetection',
     title: 'Error detection',
-    desc: 'Show wrong digits and wrongly removed candidates in red, and count both as mistakes.',
+    desc: 'Show wrong digits and wrongly removed candidates in red, and count both as mistakes. Not in Pips, where a red domino would give the answer away.',
   },
   {
     key: 'autoCandidates',

@@ -68,7 +68,7 @@ export function GamePreview({ game, size, theme: t }: { game: SavedGame; size: n
     const p = game.payload as PipsPuzzle;
     let cell = Math.floor(size / Math.max(p.rows, p.cols));
     while (cell > 3 && Math.max(pipsBoardSize(p, cell, true).width, pipsBoardSize(p, cell, true).height) > size) cell--;
-    return <PipsBoard puzzle={p} place={(game as PipsGameState).place} cellSize={cell} errorDetection={false} mini theme={t} />;
+    return <PipsBoard puzzle={p} place={(game as PipsGameState).place} cellSize={cell} mini theme={t} />;
   }
   if (game.type === 'tents') {
     const p = game.payload as TentsPuzzle;

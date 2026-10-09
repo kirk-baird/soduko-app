@@ -1,5 +1,5 @@
 // Pure game state for Pips: domino placement, turning, undo,
-// rewind-to-first-mistake, hints.
+// rewind-to-first-mistake, hints, and where a tapped or dragged domino lands.
 
 import { Difficulty } from '../engine/common';
 import { PipsPuzzle, Placement, Spot, isSolved, isWrongSpot } from '../engine/pips';
@@ -45,9 +45,6 @@ export function newPipsGame(id: string, difficulty: Difficulty, p: PipsPuzzle): 
 }
 
 const sameCells = (a: Spot | null, b: Spot) => !!a && a[0] === b[0] && a[1] === b[1];
-
-export const wrongPlaced = (s: PipsGameState) =>
-  s.place.map((spot, k) => (spot && isWrongSpot(s.payload, k, spot) ? k : -1)).filter((k) => k >= 0);
 
 export function firstPipsMistake(s: PipsGameState): number {
   return s.history.findIndex((h) => h.mistakes.some((m) => sameCells(s.place[m.k], m.spot)));
@@ -123,41 +120,65 @@ function step(p: PipsPuzzle, cell: number, dir: number): number {
 }
 
 /**
- * Where domino k lands when dropped with its first half on `cell`: the second
- * half goes right, else down, left or up, preferring empty cells. Null if
- * `cell` has no neighbour on the board.
+ * How a domino lies, each a quarter turn clockwise from the last: 0 a|b
+ * across, 1 a over b, 2 b|a, 3 b over a (a = its first half).
  */
-export function dropSpot(s: PipsGameState, k: number, cell: number): Spot | null {
-  const occ = occupancy(s.place);
-  const free = (j: number) => j >= 0 && (!occ.has(j) || occ.get(j) === k);
-  const nbrs = [0, 1, 2, 3].map((d) => step(s.payload, cell, d)).filter((j) => j >= 0);
-  const pick = nbrs.find(free) ?? nbrs[0];
-  return pick === undefined ? null : [cell, pick];
+export type Turn = 0 | 1 | 2 | 3;
+
+export const nextTurn = (o: Turn) => ((o + 1) % 4) as Turn;
+
+/** How the domino on `spot` lies. */
+export function spotTurn(p: PipsPuzzle, spot: Spot): Turn {
+  const across = Math.floor(spot[0] / p.cols) === Math.floor(spot[1] / p.cols);
+  return ((across ? 0 : 1) + (spot[0] < spot[1] ? 0 : 2)) as Turn;
+}
+
+/** The spot for a domino lying `o` with its top-left half on `anchor`, or null if it runs off the board. */
+export function turnedSpot(p: PipsPuzzle, anchor: number, o: Turn): Spot | null {
+  if (!p.cells.includes(anchor)) return null;
+  const other = step(p, anchor, o % 2 === 0 ? 0 : 1);
+  if (other < 0) return null;
+  return o < 2 ? [anchor, other] : [other, anchor];
 }
 
 /**
- * Turns a placed domino a quarter turn clockwise, keeping its top-left cell
- * fixed: a|b across, then a over b, then b|a, then b over a. Positions that
- * are off the board or taken by another domino are skipped; flipping in place
- * is always possible.
+ * Where domino k lands when tapped onto `cell` while lying `o`: covering
+ * `cell` the way it is shown (its top-left half there, else its other half),
+ * preferring empty cells; turned a quarter if it doesn't fit that way. Null if
+ * `cell` has no neighbour on the board.
  */
-export function turnSpot(s: PipsGameState, k: number): Spot | null {
-  const cur = s.place[k];
-  if (!cur) return null;
+export function tapSpot(s: PipsGameState, k: number, cell: number, o: Turn): Spot | null {
   const p = s.payload;
   const occ = occupancy(s.place);
-  const free = (j: number) => j >= 0 && (!occ.has(j) || occ.get(j) === k);
-  const anchor = Math.min(cur[0], cur[1]);
-  const other = Math.max(cur[0], cur[1]);
-  const across = other === anchor + 1;
-  const firstOnAnchor = cur[0] === anchor;
-  // Orientation index: 0 a|b, 1 a/b, 2 b|a, 3 b/a (a = first half).
-  const now = (across ? 0 : 1) + (firstOnAnchor ? 0 : 2);
-  for (let t = 1; t <= 4; t++) {
-    const o = (now + t) % 4;
-    const second = step(p, anchor, o % 2 === 0 ? 0 : 1);
-    if (!free(second)) continue;
-    return o < 2 ? [anchor, second] : [second, anchor];
+  const free = (j: number) => !occ.has(j) || occ.get(j) === k;
+  const options: Spot[] = [];
+  for (const t of [o, nextTurn(o)]) {
+    const back = step(p, cell, t % 2 === 0 ? 2 : 3); // the cell left of / above `cell`
+    for (const anchor of [cell, back]) {
+      const spot = anchor >= 0 ? turnedSpot(p, anchor, t) : null;
+      if (spot) options.push(spot);
+    }
   }
-  return [cur[1], cur[0]];
+  return options.find((sp) => free(sp[0]) && free(sp[1])) ?? options[0] ?? null;
+}
+
+/**
+ * Turns a placed domino a quarter turn clockwise around the half on `pivot`
+ * (one of its cells): that half stays put and the other swings from right to
+ * below, left, above. Positions off the board or taken by another domino are
+ * skipped; null if there is nowhere else for it to go.
+ */
+export function turnSpot(s: PipsGameState, k: number, pivot: number): Spot | null {
+  const cur = s.place[k];
+  if (!cur || !cur.includes(pivot)) return null;
+  const p = s.payload;
+  const occ = occupancy(s.place);
+  const free = (j: number) => !occ.has(j) || occ.get(j) === k;
+  const other = cur[0] === pivot ? cur[1] : cur[0];
+  const dir = [0, 1, 2, 3].find((d) => step(p, pivot, d) === other)!;
+  for (let t = 1; t < 4; t++) {
+    const j = step(p, pivot, (dir + t) % 4);
+    if (j >= 0 && free(j)) return cur[0] === pivot ? [pivot, j] : [j, pivot];
+  }
+  return null;
 }

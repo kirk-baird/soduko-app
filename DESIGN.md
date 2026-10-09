@@ -26,8 +26,9 @@ Each type keeps its own game in progress, stats and played-puzzle list.
   techniques with explanations, grading) behind the same hint format.
 - **Big grids** (16×16, Samurai, large Kakuro/Tents) get a Zoom button: the board
   is shown at full cell size and can be dragged around.
-- **Auto-finish** for Tents and Pips is offered only near the end, because the
-  simplest rules alone can solve many Medium puzzles from the start.
+- **Auto-finish** for Tents is offered only near the end, because the
+  simplest rules alone can solve many Medium puzzles from the start. Pips has
+  none (see below).
 
 ## Pips
 
@@ -36,17 +37,32 @@ Modelled on the NYT game. The tray holds dominoes from a double-six set (pips
 rules: a number (the pips add up to it), `<n`, `>n`, `=` (all halves the
 same), `≠` (all different). Grey cells have no rule.
 
-- **Input.** Tap a tray domino, then a cell: its first half goes there and the
-  second goes right (else down, left, up), bumping anything already there back
-  to the tray. Tapping a placed domino turns it a quarter turn around its
-  top-left cell (a|b, a over b, b|a, b over a, skipping blocked spots). Press
-  and hold to take it back. No drag and drop yet.
+- **Input.** Drag a domino from the tray onto the board: it lands the way it
+  is shown, its top-left half on the cell nearest the dragged domino's
+  top-left corner, and an outline shows where while dragging. Placed dominoes
+  can be dragged to a new spot (keeping how they lie) or off the board back to
+  the tray; a drop that would run off the board leaves things as they were.
+  Tapping a tray domino picks it up and tapping it again turns it a quarter
+  turn (a|b, a over b, b|a, b over a); then tap a cell to lay it there the way
+  it is shown (shifted or turned a quarter if it doesn't fit, preferring empty
+  cells). Tapping a placed domino turns it a quarter turn clockwise around the
+  half you tapped (that half stays, the other swings right → below → left →
+  above), skipping blocked spots; nothing happens if it has nowhere to go. Press and hold takes it back to the tray, or keep moving to
+  drag it on. Anything a domino lands on goes back to the tray. Drags use the
+  React Native responder system (no gesture library), so they ship as an
+  over-the-air update.
 - **Same solution, flipped.** A domino with both halves in one region (or both
   in grey cells) can be flipped without changing anything, so either way round
   counts as correct. The solver and the logic treat the two as one placement.
 - **Mistakes** are dominoes put somewhere the (unique) solution doesn't have
-  them. A region whose cells are all covered and whose rule fails shows a red
-  label whether or not error detection is on.
+  them. Pips has no error detection and no auto-finish: with few dominoes, a
+  red domino (or a button that appears only when everything so far is right)
+  gives the answer away. So there is no mistake counter in the header, Rewind
+  is enabled whenever there is history (pressed with no mistake on the board,
+  it says so and changes nothing), and only a hint points out a wrong domino.
+  Mistakes are still counted for the completion stats. A region whose cells
+  are all covered and whose rule fails shows a red label: that follows from
+  the rules, not the solution.
 - **Logic** works on the set of placements still possible (domino, two cells,
   orientation). Tiers: 0 Region Rule, Only Fit (a cell with one placement
   left), Only Spot (a domino with one spot left), Only Partner; 1 Counting

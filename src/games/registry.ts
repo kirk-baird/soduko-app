@@ -410,7 +410,7 @@ export const GAMES: Record<GameType, GameDef> = {
       'Cover every cell of the board with the dominoes in the tray. Each domino is used exactly once and covers two neighbouring cells; turn it any way you like.',
       'Coloured regions have a rule on their label: a number means the pips in the region add up to it, < and > mean the total is less or more than the number, = means every half in the region shows the same number, and ≠ means they are all different.',
       'Grey cells have no rule. A domino can lie across two regions.',
-      'Tap a domino in the tray, then the cell for its first half. Tap a placed domino to turn it; press and hold to put it back in the tray.',
+      'Drag a domino from the tray onto the board, or tap it and then a cell. Tap a tray domino again to turn it before you lay it; tap either half of a placed domino to turn it clockwise around that half. Drag a placed domino to move it, or off the board (or press and hold) to put it back in the tray.',
     ],
     tips: [
       'Start with the tightest rules: a two-cell region that adds up to 12 needs two 6s, and one that adds up to 0 needs two blanks.',

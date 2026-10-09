@@ -1,6 +1,6 @@
 {
   "name": "sudokou",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "main": "index.ts",
   "dependencies": {
     "@expo-google-fonts/bricolage-grotesque": "^0.4.1",

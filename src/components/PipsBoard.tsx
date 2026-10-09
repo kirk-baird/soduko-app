@@ -1,10 +1,17 @@
-import React, { memo } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import React, { memo, useRef } from 'react';
+import { GestureResponderEvent, Pressable, Text, View } from 'react-native';
 import { PuzzleStep } from '../engine/common';
-import { PipsPuzzle, Placement, cellValues, isWrongSpot, regionLabel, regionStatus } from '../engine/pips';
+import { PipsPuzzle, Placement, Spot, cellValues, regionLabel, regionStatus } from '../engine/pips';
+import { Turn } from '../game/pipsState';
 import { Theme } from '../theme';
 
 const gapFor = (cell: number) => Math.max(2, Math.round(cell * 0.07));
+
+/** Spacing on a board of cellSize cells: cell (row, col) has its top-left corner at (col × pitch, row × pitch). */
+export function pipsGeometry(cellSize: number) {
+  const gap = gapFor(cellSize);
+  return { gap, pitch: cellSize + gap, inset: Math.max(1, Math.round(cellSize * 0.05)) };
+}
 
 export function pipsBoardSize(p: PipsPuzzle, cellSize: number, mini?: boolean) {
   const pitch = cellSize + gapFor(cellSize);
@@ -161,20 +168,20 @@ export function PipsBoard(props: {
   puzzle: PipsPuzzle;
   place: Placement;
   cellSize: number;
-  errorDetection: boolean;
   selected?: number | null; // domino highlighted on the board
   hintStep?: PuzzleStep | null;
   problemCells?: number[];
   hidden?: boolean;
   mini?: boolean;
+  lifted?: number | null; // domino being dragged: not drawn in its spot
+  dropTarget?: Spot | null; // where the dragged domino would land
   theme: Theme;
   onPressCell?: (cell: number) => void;
   onLongPressCell?: (cell: number) => void;
 }) {
   const { puzzle: p, cellSize: s, theme: t, mini } = props;
   const place = props.hidden ? p.dominoes.map(() => null) : props.place;
-  const gap = gapFor(s);
-  const pitch = s + gap;
+  const { gap, pitch, inset } = pipsGeometry(s);
   const size = pipsBoardSize(p, s, mini);
   const xy = (c: number) => ({ x: (c % p.cols) * pitch, y: Math.floor(c / p.cols) * pitch });
   const regionOf = new Map<number, number>();
@@ -234,7 +241,6 @@ export function PipsBoard(props: {
   }
 
   // Dominoes on the board (and a ghost for the hint), drawn over the cells but letting taps through.
-  const inset = Math.max(1, Math.round(s * 0.05));
   const drawDomino = (key: string, a: number, b: number, ca: number, cb: number, look: { face: string; edge: string; pip: string; width?: number; dashed?: boolean }) => {
     const pa = xy(ca);
     const pb = xy(cb);
@@ -275,20 +281,39 @@ export function PipsBoard(props: {
     );
   };
   place.forEach((spot, k) => {
-    if (!spot) return;
+    if (!spot || k === props.lifted) return;
     const [a, b] = p.dominoes[k];
-    const wrong = props.errorDetection && isWrongSpot(p, k, spot);
     const sel = props.selected === k;
     drawDomino(`d${k}`, a, b, spot[0], spot[1], {
       face: t.dominoFace,
-      edge: wrong ? t.digitError : sel ? t.accent : t.dominoEdge,
-      pip: wrong ? t.digitError : t.dominoPip,
+      edge: sel ? t.accent : t.dominoEdge,
+      pip: t.dominoPip,
       width: sel ? Math.max(2.5, s * 0.07) : undefined,
     });
   });
   const ghost = props.hidden ? null : props.hintStep?.placements;
   if (ghost && ghost.length === 2 && !place.some((sp) => sp && sp.includes(ghost[0].cell) && sp.includes(ghost[1].cell))) {
     drawDomino('ghost', ghost[0].digit, ghost[1].digit, ghost[0].cell, ghost[1].cell, { face: t.hintPlace, edge: t.hintKey, pip: t.text, dashed: true, width: 2 });
+  }
+  if (props.dropTarget && !props.hidden) {
+    const pa = xy(Math.min(...props.dropTarget));
+    const across = Math.abs(props.dropTarget[0] - props.dropTarget[1]) === 1;
+    nodes.push(
+      <View
+        key="drop"
+        style={{
+          position: 'absolute',
+          left: pa.x,
+          top: pa.y,
+          width: across ? 2 * s + gap : s,
+          height: across ? s : 2 * s + gap,
+          borderRadius: s * 0.2,
+          borderWidth: Math.max(2.5, s * 0.07),
+          borderColor: t.accent,
+          pointerEvents: 'none',
+        }}
+      />,
+    );
   }
 
   // Region labels hang off the bottom-right corner of each region's last cell.
@@ -336,37 +361,131 @@ export function PipsBoard(props: {
   return <View style={{ width: size.width, height: size.height }}>{nodes}</View>;
 }
 
-/** The dominoes still to place. Placed ones leave an empty slot so nothing jumps around. */
+/** A domino lying `o` (see Turn), as two halves of size `half` and a length `length`. */
+export function TurnedDomino(props: { a: number; b: number; o: Turn; half: number; length?: number; edge: string; edgeWidth?: number; theme: Theme }) {
+  const { o, theme: t } = props;
+  return (
+    <DominoView
+      a={o < 2 ? props.a : props.b}
+      b={o < 2 ? props.b : props.a}
+      half={props.half}
+      length={props.length}
+      vertical={o % 2 === 1}
+      face={t.dominoFace}
+      edge={props.edge}
+      pip={t.dominoPip}
+      edgeWidth={props.edgeWidth}
+    />
+  );
+}
+
+/** The empty slot a placed or dragged domino leaves in the tray. */
+function TraySlot({ half, theme: t }: { half: number; theme: Theme }) {
+  return (
+    <View style={{ width: half * 2, height: half * 2, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ width: half * 2, height: half, borderRadius: half * 0.18, borderWidth: 1.5, borderStyle: 'dashed', borderColor: t.border }} />
+    </View>
+  );
+}
+
+/** Finger positions (window coordinates) while a tray domino is dragged. */
+export interface TrayDrag {
+  start: (k: number, x: number, y: number) => void;
+  move: (x: number, y: number) => void;
+  end: (x: number, y: number) => void;
+  cancel: () => void;
+}
+
+/** Movement before a press turns into a drag. */
+export const DRAG_SLOP = 6;
+
+function TrayDomino(props: {
+  k: number;
+  a: number;
+  b: number;
+  turn: Turn;
+  half: number;
+  selected: boolean;
+  lifted: boolean;
+  disabled?: boolean;
+  theme: Theme;
+  onPress: (k: number) => void;
+  drag: TrayDrag;
+}) {
+  const { a, b, half, theme: t, selected: sel, drag } = props;
+  const start = useRef({ x: 0, y: 0 });
+  const at = (e: GestureResponderEvent) => [e.nativeEvent.pageX, e.nativeEvent.pageY] as const;
+  // Taps go to the Pressable; once the finger moves, the drag takes over.
+  // While dragged it stays mounted (showing an empty slot): unmounting the
+  // view that holds the touch would end the drag.
+  return (
+    <View
+      onStartShouldSetResponderCapture={(e) => {
+        start.current = { x: e.nativeEvent.pageX, y: e.nativeEvent.pageY };
+        return false;
+      }}
+      onMoveShouldSetResponderCapture={(e) => !props.disabled && Math.hypot(e.nativeEvent.pageX - start.current.x, e.nativeEvent.pageY - start.current.y) > DRAG_SLOP}
+      onResponderGrant={(e) => drag.start(props.k, ...at(e))}
+      onResponderMove={(e) => drag.move(...at(e))}
+      onResponderRelease={(e) => drag.end(...at(e))}
+      onResponderTerminate={drag.cancel}
+      onResponderTerminationRequest={() => false}
+    >
+      {props.lifted ? (
+        <TraySlot half={half} theme={t} />
+      ) : (
+        <Pressable
+          onPress={() => props.onPress(props.k)}
+          disabled={props.disabled}
+          accessibilityRole="button"
+          accessibilityState={{ selected: sel }}
+          accessibilityLabel={`Domino ${a} and ${b}${sel ? ', selected' : ''}`}
+          accessibilityHint={sel ? 'Tap again to turn it' : 'Tap to pick it up, or drag it onto the board'}
+          style={{ width: half * 2, height: half * 2, alignItems: 'center', justifyContent: 'center', transform: [{ translateY: sel ? -4 : 0 }] }}
+        >
+          <TurnedDomino a={a} b={b} o={props.turn} half={half} edge={sel ? t.accent : t.dominoEdge} edgeWidth={sel ? 3 : undefined} theme={t} />
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+/**
+ * The dominoes still to place, each shown the way it is turned. Placed (and
+ * dragged) ones leave an empty slot so nothing jumps around.
+ */
 export function DominoTray(props: {
   puzzle: PipsPuzzle;
   place: Placement;
+  turns: Turn[];
   selected: number | null;
+  lifted: number | null;
   half: number;
   disabled?: boolean;
   theme: Theme;
   onPress: (k: number) => void;
+  drag: TrayDrag;
 }) {
   const { puzzle: p, half, theme: t } = props;
   return (
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: half * 0.4 }}>
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', columnGap: half * 0.4, rowGap: half * 0.15 }}>
       {p.dominoes.map(([a, b], k) => {
-        const placed = !!props.place[k];
-        const sel = props.selected === k;
-        if (placed) {
-          return <View key={k} style={{ width: half * 2, height: half, borderRadius: half * 0.18, borderWidth: 1.5, borderStyle: 'dashed', borderColor: t.border }} />;
-        }
+        if (props.place[k]) return <TraySlot key={k} half={half} theme={t} />;
         return (
-          <Pressable
+          <TrayDomino
             key={k}
-            onPress={() => props.onPress(k)}
+            k={k}
+            a={a}
+            b={b}
+            turn={props.turns[k] ?? 0}
+            half={half}
+            selected={props.selected === k}
+            lifted={props.lifted === k}
             disabled={props.disabled}
-            accessibilityRole="button"
-            accessibilityState={{ selected: sel }}
-            accessibilityLabel={`Domino ${a} and ${b}${sel ? ', selected' : ''}`}
-            style={{ transform: [{ translateY: sel ? -4 : 0 }] }}
-          >
-            <DominoView a={a} b={b} half={half} face={t.dominoFace} edge={sel ? t.accent : t.dominoEdge} pip={t.dominoPip} edgeWidth={sel ? 3 : undefined} />
-          </Pressable>
+            theme={t}
+            onPress={props.onPress}
+            drag={props.drag}
+          />
         );
       })}
     </View>
