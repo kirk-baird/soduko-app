@@ -3,6 +3,10 @@
 The version is shown at the bottom of Settings. Bump it before every update
 (see "Versioning and updates" in README.md). Pushing a new version to master publishes it to the preview channel.
 
+## 1.2.0
+
+- New game: Pips (after the NYT domino game), with Medium to Extreme levels graded by technique, hints and auto-finish
+
 ## 1.1.3
 
 - Correcting a wrong digit (overwriting, tapping it off or erasing) gives its candidates back to the cells it had cleared

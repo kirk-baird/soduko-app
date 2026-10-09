@@ -53,6 +53,13 @@ export interface Theme {
   grass: string;
   countDone: string;
   countOver: string;
+  // pips
+  regionFill: string[]; // region colours, picked so neighbours differ
+  regionBadge: string[]; // matching darker label colours
+  pipsBlank: string; // cells outside every region
+  dominoFace: string;
+  dominoEdge: string;
+  dominoPip: string;
 }
 
 const light: Theme = {
@@ -103,6 +110,12 @@ const light: Theme = {
   grass: '#9CC9A6',
   countDone: '#2F7D4A',
   countOver: '#CC3B30',
+  regionFill: ['#D9C9EE', '#F6C6D3', '#B8E3DA', '#F8D3AE', '#BCD3F3', '#CFE6B6', '#F3E3A2', '#D5D0E2'],
+  regionBadge: ['#7656B0', '#C04A76', '#2D8576', '#C26D27', '#3A69B3', '#55913A', '#9C7F12', '#6E6890'],
+  pipsBlank: '#E9E4DA',
+  dominoFace: '#FFFDF8',
+  dominoEdge: '#2A2C3F',
+  dominoPip: '#1E2030',
 };
 
 const dark: Theme = {
@@ -153,6 +166,12 @@ const dark: Theme = {
   grass: '#3E6B4C',
   countDone: '#5DBB7E',
   countOver: '#FF7B70',
+  regionFill: ['#433A5C', '#5A3A47', '#2F4F4A', '#5A4532', '#34445F', '#3C4D33', '#544C2C', '#40404F'],
+  regionBadge: ['#A98BE6', '#F08BB0', '#6FCFBE', '#F2A866', '#86AEF0', '#9BCF7A', '#E3C75A', '#A9A3C9'],
+  pipsBlank: '#2A2C38',
+  dominoFace: '#ECEDF3',
+  dominoEdge: '#0F1320',
+  dominoPip: '#14151C',
 };
 
 export function useTheme(): Theme {

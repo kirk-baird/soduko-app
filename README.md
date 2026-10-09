@@ -2,7 +2,7 @@
 
 A free, ad-free logic-puzzle app for Android (and iOS) built with Expo / React
 Native: classic sudoku plus Jigsaw, Windoku, 16×16 and Samurai sudoku,
-Calcudoku, Kakuro and Tents. Difficulty is graded by the solving techniques a
+Calcudoku, Kakuro, Tents and Pips (after the NYT domino game). Difficulty is graded by the solving techniques a
 puzzle needs, hints explain the next deduction from *your* pencil marks, and
 games can auto-finish once only the simplest steps remain.
 
@@ -80,7 +80,7 @@ npm run web         # run in a browser
 npm run build-bank  # regenerate the classic puzzle bank (src/data/puzzleBank.json)
 npm run survey      # stats on which technique each random classic puzzle needs
 npx tsx scripts/build-variant-bank.ts <windoku|jigsaw|sixteen|samurai> [perLevel] [minutes]
-npx tsx scripts/build-calcudoku-bank.ts | build-kakuro-bank.ts | build-tents-bank.ts
+npx tsx scripts/build-calcudoku-bank.ts | build-kakuro-bank.ts | build-tents-bank.ts | build-pips-bank.ts
 ```
 
 ## Layout
@@ -95,10 +95,12 @@ src/engine/logic.ts, hint.ts, solver.ts, generator.ts   grading, hints, solver, 
 src/engine/calcudoku/         Calcudoku solver, generator, techniques, hints
 src/engine/kakuro/            Kakuro solver, generator, techniques, hints
 src/engine/tents/             Tents solver, generator, rules, hints
+src/engine/pips/              Pips solver, generator, rules, hints
 src/game/gameState.ts         digit-puzzle reducer (bound to a puzzle's rules)
 src/game/tentsState.ts        Tents reducer
+src/game/pipsState.ts         Pips reducer
 src/game/puzzleSource.ts      bundled bank first, on-device generation afterwards
-src/components/               Board (any digit puzzle), TentsBoard, Cell, controls, hint panel
-src/screens/                  Home, Type (levels + how to play), Game, Tents, Settings
+src/components/               Board (any digit puzzle), TentsBoard, PipsBoard, Cell, controls, hint panel
+src/screens/                  Home, Type (levels + how to play), Game, Tents, Pips, Settings
 src/data/*Bank.json           pre-generated graded puzzles per game type
 ```

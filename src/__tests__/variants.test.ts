@@ -7,8 +7,10 @@ import { legalCandidates } from '../engine/sudoku/core';
 import { geometryFor } from '../engine/sudoku/geometry';
 import { generateVariant, randomJigsawRegions } from '../engine/generator';
 import { State, TECHNIQUES, findStep } from '../engine/techniques';
+import { PipsPuzzle, findHint as pipsHint, isSolved as pipsSolved } from '../engine/pips';
 import { TENT, GRASS, TentsPuzzle } from '../engine/tents';
 import { gameReducer, makeGameReducer, newGame } from '../game/gameState';
+import { dropSpot, firstPipsMistake, newPipsGame, occupancy, pipsReducer, turnSpot } from '../game/pipsState';
 import { firstTentsMistake, newTentsGame, tentsReducer } from '../game/tentsState';
 import { GAMES, SudokuPayload } from '../games/registry';
 import { GAME_TYPES } from '../games/types';
@@ -117,6 +119,14 @@ describe('registry', () => {
         expect(g.marks.length).toBe((payload as TentsPuzzle).rows * (payload as TentsPuzzle).cols);
         return;
       }
+      if (def.kind === 'pips') {
+        const pp = payload as PipsPuzzle;
+        const g = newPipsGame('p', 'medium', pp);
+        expect(g.place.every((x) => x === null)).toBe(true);
+        expect(pipsSolved(pp, pp.solution)).toBe(true);
+        expect(pipsHint(pp, g.place).kind).toBe('step');
+        return;
+      }
       const a = def.adapter!(payload);
       expect(a.layout.pos.length).toBe(a.rules.cellCount);
       const legal = a.rules.legalCandidates(a.givens);
@@ -180,6 +190,62 @@ describe('tents game state', () => {
     const tents = p.solution.map((x, i) => (x === 1 ? i : -1)).filter((i) => i >= 0);
     s = tentsReducer(s, { type: 'apply', placements: tents.map((cell) => ({ cell, digit: TENT })) });
     expect(s.completed).toBe(true);
+  });
+});
+
+describe('pips game state', () => {
+  const def = GAMES.pips;
+  const p = def.fromBank(def.bank().hard[0]) as PipsPuzzle;
+  // a domino whose halves differ, so a flipped spot can be wrong
+  const k = p.dominoes.findIndex(([a, b], i) => a !== b && !p.regions.some((r) => r.cells.includes(p.solution[i][0]) && r.cells.includes(p.solution[i][1])));
+
+  it('puts dominoes down, tracks mistakes, rewinds and undoes', () => {
+    let s = newPipsGame('p', 'hard', p);
+    s = pipsReducer(s, { type: 'put', k, spot: p.solution[k] });
+    expect(s.place[k]).toEqual(p.solution[k]);
+    expect(s.mistakes).toBe(0);
+    const flipped: [number, number] = [p.solution[k][1], p.solution[k][0]];
+    s = pipsReducer(s, { type: 'put', k, spot: flipped });
+    expect(s.mistakes).toBe(1);
+    expect(firstPipsMistake(s)).toBe(1);
+    s = pipsReducer(s, { type: 'rewind' });
+    expect(s.place[k]).toEqual(p.solution[k]);
+    s = pipsReducer(s, { type: 'put', k, spot: null });
+    expect(s.place[k]).toBeNull();
+    s = pipsReducer(s, { type: 'undo' });
+    expect(s.place[k]).toEqual(p.solution[k]);
+  });
+
+  it('bumps a domino back to the tray when another lands on it', () => {
+    let s = newPipsGame('p', 'hard', p);
+    s = pipsReducer(s, { type: 'put', k: 0, spot: p.solution[0] });
+    s = pipsReducer(s, { type: 'put', k: 1, spot: p.solution[0] });
+    expect(s.place[0]).toBeNull();
+    expect(occupancy(s.place).get(p.solution[0][0])).toBe(1);
+  });
+
+  it('drops next to the tapped cell and turns through every orientation', () => {
+    let s = newPipsGame('p', 'hard', p);
+    const cell = p.solution[k][0];
+    const spot = dropSpot(s, k, cell)!;
+    expect(spot[0]).toBe(cell);
+    s = pipsReducer(s, { type: 'put', k, spot });
+    const seen = new Set<string>([spot.join()]);
+    for (let i = 0; i < 4; i++) {
+      const next = turnSpot(s, k)!;
+      expect(p.cells).toContain(next[0]);
+      expect(p.cells).toContain(next[1]);
+      seen.add(next.join());
+      s = pipsReducer(s, { type: 'put', k, spot: next });
+    }
+    expect(seen.size).toBeGreaterThanOrEqual(2); // at least a flip in place
+  });
+
+  it('completes when every domino is down', () => {
+    let s = newPipsGame('p', 'hard', p);
+    p.solution.forEach((spot, i) => (s = pipsReducer(s, { type: 'put', k: i, spot })));
+    expect(s.completed).toBe(true);
+    expect(s.mistakes).toBe(0);
   });
 });
 

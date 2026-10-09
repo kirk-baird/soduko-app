@@ -12,6 +12,7 @@ export function HintPanel(props: {
   onApply: () => void;
   onRewind: () => void;
   onClose: () => void;
+  bodyMaxHeight?: number; // default 130
   theme: Theme;
 }) {
   const { hint, theme: t } = props;
@@ -65,7 +66,7 @@ export function HintPanel(props: {
           <MaterialCommunityIcons name="close" size={22} color={t.textMuted} />
         </Pressable>
       </View>
-      <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
+      <ScrollView style={[styles.scroll, props.bodyMaxHeight ? { maxHeight: props.bodyMaxHeight } : null]} contentContainerStyle={{ paddingBottom: 4 }}>
         <Text style={[styles.body, { color: t.text }]}>{body}</Text>
       </ScrollView>
       <View style={styles.actions}>

@@ -1,5 +1,5 @@
 // Shared types for every puzzle engine (sudoku variants, Calcudoku, Kakuro,
-// Tents). Engines are pure TypeScript: no React, no storage.
+// Tents, Pips). Engines are pure TypeScript: no React, no storage.
 //
 // Candidate sets are bitmasks: digit d (1..16) is bit (1 << d).
 

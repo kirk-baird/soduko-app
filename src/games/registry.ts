@@ -14,6 +14,7 @@ import { solve } from '../engine/solver';
 import { decodeValues, legalCandidates } from '../engine/sudoku/core';
 import { Geometry, SudokuVariant, geometryFor } from '../engine/sudoku/geometry';
 import { TECHNIQUE_BY_ID } from '../engine/techniques';
+import * as pips from '../engine/pips';
 import * as tents from '../engine/tents';
 import { calcudokuSingles, kakuroSingles } from './finish';
 import { GameType } from './types';
@@ -169,14 +170,15 @@ export function kakuroAdapter(p: kakuro.KakuroPuzzle): DigitAdapter {
 
 export type GameIcon =
   | { kind: 'icon'; name: 'grid' | 'puzzle-outline' | 'window-closed-variant' | 'hexadecimal' | 'calculator-variant-outline' | 'sigma' | 'tent' }
-  | { kind: 'samurai' };
+  | { kind: 'samurai' }
+  | { kind: 'domino' };
 
 export interface GameDef {
   type: GameType;
   name: string;
   short: string; // one line for the tile
   icon: GameIcon;
-  kind: 'digits' | 'tents';
+  kind: 'digits' | 'tents' | 'pips';
   rules: string[];
   tips: string[];
   levels: Record<Difficulty, string>; // one-line description per difficulty
@@ -398,6 +400,29 @@ export const GAMES: Record<GameType, GameDef> = {
     fromBank: (e) => e,
     generate: (d, rng) => tents.generate(d, rng, 3),
   },
+  pips: {
+    type: 'pips',
+    name: 'Pips',
+    short: 'Lay dominoes to fit the rules',
+    icon: { kind: 'domino' },
+    kind: 'pips',
+    rules: [
+      'Cover every cell of the board with the dominoes in the tray. Each domino is used exactly once and covers two neighbouring cells; turn it any way you like.',
+      'Coloured regions have a rule on their label: a number means the pips in the region add up to it, < and > mean the total is less or more than the number, = means every half in the region shows the same number, and ≠ means they are all different.',
+      'Grey cells have no rule. A domino can lie across two regions.',
+      'Tap a domino in the tray, then the cell for its first half. Tap a placed domino to turn it; press and hold to put it back in the tray.',
+    ],
+    tips: [
+      'Start with the tightest rules: a two-cell region that adds up to 12 needs two 6s, and one that adds up to 0 needs two blanks.',
+      'Count the halves: if only one domino has a 6, at most one cell can be 6 (two, if it is the 6|6).',
+      'A corner cell with only one free neighbour must share a domino with it.',
+      'Leave no odd-sized pocket of cells behind: dominoes can only fill an even number.',
+    ],
+    levels: pipsLevels(),
+    bank: () => require('../data/pipsBank.json'),
+    fromBank: (e) => e,
+    generate: (d, rng) => pips.generate(d, rng, 3),
+  },
 };
 
 function calcLevels(): Record<Difficulty, string> {
@@ -408,6 +433,9 @@ function kakuroLevels(): Record<Difficulty, string> {
 }
 function tentsLevels(): Record<Difficulty, string> {
   return mapLevels(tents.DIFFICULTY_INFO);
+}
+function pipsLevels(): Record<Difficulty, string> {
+  return mapLevels(pips.DIFFICULTY_INFO);
 }
 function mapLevels(info: Record<Difficulty, { description: string }>): Record<Difficulty, string> {
   const d = info;

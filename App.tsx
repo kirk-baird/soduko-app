@@ -6,15 +6,18 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Dialog } from './src/components/Dialog';
 import { SavedGame } from './src/components/HomeParts';
 import { DIFFICULTY_NAMES, Difficulty } from './src/engine/common';
+import { PipsPuzzle } from './src/engine/pips';
 import { TentsPuzzle } from './src/engine/tents';
 import { FONT_ASSETS } from './src/fonts';
 import { GameState, newGame } from './src/game/gameState';
+import { PipsGameState, newPipsGame } from './src/game/pipsState';
 import { nextPuzzle } from './src/game/puzzleSource';
 import { TentsGameState, newTentsGame } from './src/game/tentsState';
 import { GAMES } from './src/games/registry';
 import { GAME_TYPES, GameType } from './src/games/types';
 import { GameScreen, resolveGame } from './src/screens/GameScreen';
 import { HomeScreen } from './src/screens/HomeScreen';
+import { PipsScreen } from './src/screens/PipsScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { TentsScreen } from './src/screens/TentsScreen';
 import { TypeScreen } from './src/screens/TypeScreen';
@@ -46,7 +49,7 @@ function Root() {
     const nextStats: Partial<Record<GameType, Stats>> = {};
     GAME_TYPES.forEach((ty, i) => {
       const g = games[i];
-      if (g && !g.completed) nextSaved[ty] = ty === 'tents' ? g : resolveGame(g as GameState);
+      if (g && !g.completed) nextSaved[ty] = ty === 'tents' || ty === 'pips' ? g : resolveGame(g as GameState);
       nextStats[ty] = st[i];
     });
     setSaved(nextSaved);
@@ -97,6 +100,8 @@ function Root() {
     let g: SavedGame;
     if (ty === 'tents') {
       g = newTentsGame(p.id, d, p.payload as TentsPuzzle);
+    } else if (ty === 'pips') {
+      g = newPipsGame(p.id, d, p.payload as PipsPuzzle);
     } else {
       const a = GAMES[ty].adapter!(p.payload);
       g = newGame(p.id, d, a.givens, a.solution, settings.autoCandidates, { type: ty, payload: p.payload, rules: a.rules });
@@ -129,6 +134,8 @@ function Root() {
     body =
       game.type === 'tents' ? (
         <TentsScreen key={game.id} initial={game as TentsGameState} onExit={leaveGame} onNewGame={startNew} />
+      ) : game.type === 'pips' ? (
+        <PipsScreen key={game.id} initial={game as PipsGameState} onExit={leaveGame} onNewGame={startNew} />
       ) : (
         <GameScreen key={game.id} initial={game as GameState} onExit={leaveGame} onNewGame={startNew} />
       );

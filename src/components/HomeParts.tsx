@@ -2,17 +2,20 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React, { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { DIFFICULTY_NAMES, DIFFICULTY_ORDER, Difficulty } from '../engine/common';
+import { PipsPuzzle } from '../engine/pips';
 import { TentsPuzzle } from '../engine/tents';
 import { FONTS } from '../fonts';
 import { GameState } from '../game/gameState';
+import { PipsGameState } from '../game/pipsState';
 import { TentsGameState } from '../game/tentsState';
 import { GAMES, GameDef } from '../games/registry';
 import { Stats, formatTime } from '../stats';
 import { Theme } from '../theme';
 import { Board } from './Board';
+import { PipFace, PipsBoard, pipsBoardSize } from './PipsBoard';
 import { TentsBoard } from './TentsBoard';
 
-export type SavedGame = GameState | TentsGameState;
+export type SavedGame = GameState | TentsGameState | PipsGameState;
 
 /** A 2×2 box that fills up as the level gets harder. */
 export function LevelPips({ level, theme: t }: { level: number; theme: Theme }) {
@@ -28,8 +31,22 @@ export function LevelPips({ level, theme: t }: { level: number; theme: Theme }) 
   );
 }
 
-/** Small icon for a game type. Samurai gets a drawn cross of five squares. */
+/** Small icon for a game type. Samurai gets a drawn cross of five squares, Pips a domino. */
 export function GameGlyph({ def, size, color, theme: t }: { def: GameDef; size: number; color: string; theme: Theme }) {
+  if (def.icon.kind === 'domino') {
+    const w = size * 0.52;
+    const bw = Math.max(1.5, size * 0.07);
+    const face = w - 2 * bw;
+    return (
+      <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ width: w, height: size * 0.94, borderWidth: bw, borderColor: color, borderRadius: size * 0.12, alignItems: 'center', justifyContent: 'space-around' }}>
+          <PipFace value={2} size={face} color={color} />
+          <View style={{ width: face * 0.7, height: bw * 0.8, backgroundColor: color }} />
+          <PipFace value={5} size={face} color={color} />
+        </View>
+      </View>
+    );
+  }
   if (def.icon.kind === 'samurai') {
     const u = size / 7;
     const sq = (x: number, y: number, k: number) => (
@@ -47,6 +64,12 @@ export function GameGlyph({ def, size, color, theme: t }: { def: GameDef; size: 
 export function GamePreview({ game, size, theme: t }: { game: SavedGame; size: number; theme: Theme }) {
   const def = GAMES[game.type ?? 'classic'];
   const adapter = useMemo(() => (def.adapter && 'values' in game ? def.adapter(game.payload) : null), [def, game]);
+  if (game.type === 'pips') {
+    const p = game.payload as PipsPuzzle;
+    let cell = Math.floor(size / Math.max(p.rows, p.cols));
+    while (cell > 3 && Math.max(pipsBoardSize(p, cell, true).width, pipsBoardSize(p, cell, true).height) > size) cell--;
+    return <PipsBoard puzzle={p} place={(game as PipsGameState).place} cellSize={cell} errorDetection={false} mini theme={t} />;
+  }
   if (game.type === 'tents') {
     const p = game.payload as TentsPuzzle;
     const cell = Math.floor((size - 1) / Math.max(p.rows, p.cols) - 1);
@@ -79,6 +102,10 @@ export function GamePreview({ game, size, theme: t }: { game: SavedGame; size: n
 }
 
 export function progressOf(game: SavedGame): { done: number; total: number } {
+  if (game.type === 'pips') {
+    const g = game as PipsGameState;
+    return { done: g.place.filter(Boolean).length, total: g.place.length };
+  }
   if (game.type === 'tents') {
     const g = game as TentsGameState;
     const total = g.payload.solution.filter((x) => x === 1).length;
@@ -111,7 +138,7 @@ export function ContinueCard(props: {
   const { game } = props;
   const def = GAMES[game.type ?? 'classic'];
   const prog = props.resume ? progressOf(game) : null;
-  const unit = game.type === 'tents' ? 'tents' : 'cells';
+  const unit = game.type === 'tents' ? 'tents' : game.type === 'pips' ? 'dominoes' : 'cells';
   const title = props.showType ? def.name : DIFFICULTY_NAMES[game.difficulty];
   return (
     <Pressable
